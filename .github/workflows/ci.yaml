@@ -1,0 +1,23 @@
+name: Continuous integration
+on: [push, pull_request]
+env:
+  nixpkgs-url: https://github.com/NixOS/nixpkgs/archive/db8672b8d0a2593c2405aed0c1dfa64b2a2f428f.tar.gz
+jobs:
+  build-pdf:
+    name: Generate PDF artifact
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: cachix/install-nix-action@v15
+      with:
+        nix_path: "${{ env.nixpkgs-url }}"
+    - name: Build Nix dependencies
+      run: nix-shell --pure --run "echo '=== Nix dependencies installed ==='"
+    - name: Make PDF
+      run: nix-shell --pure --run "make"
+    - name: Upload PDF
+      uses: actions/upload-artifact@v3
+      with:
+        name: jflart-programming-with-destinations
+        path: jflart-programming-with-destinations.pdf
+        retention-days: 60
