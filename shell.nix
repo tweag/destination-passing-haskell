@@ -22,7 +22,9 @@ pkgs.mkShell
           xargs todonotes
           mathpartir
           newunicodechar
-          
+          minted
+          authblk
+          xpatch
           # for lhs2tex
           # lazylist polytable
 
