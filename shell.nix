@@ -2,12 +2,11 @@ with { pkgs = import ./nix {}; };
 pkgs.mkShell
   { buildInputs = with pkgs; [
       gnumake
-      niv
       # coq
       # coqPackages.coqide
       # haskellPackages.lhs2tex
       biber
-      ott
+      # ott
       pdftk
       entr
       (texlive.combine {
