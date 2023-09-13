@@ -30,7 +30,6 @@ clean:
 	rm -f *.log *.bcf *.fdb_latexmk *.fls *.blg
 	rm -f jflart-programming-with-destinations.pdf
 	rm -f jflart-programming-with-destinations.lhs
-	rm -f jflart-programming-with-destinations.tex
 	rm -f jflart-programming-with-destinations.tar.gz
 
 # %.tex: %.mng $(OTT_FILES)

@@ -1,6 +1,12 @@
 with { pkgs = import ./nix {}; };
+let my-python-packages = ps: with ps; [
+    pygments
+    # other python packages
+  ];
+in
 pkgs.mkShell
   { buildInputs = with pkgs; [
+      (python3.withPackages my-python-packages)
       gnumake
       # coq
       # coqPackages.coqide
@@ -16,6 +22,7 @@ pkgs.mkShell
           cleveref
           latexmk
           biblatex biblatex-software
+          bibtex
           stmaryrd
           unicode-math lm lm-math
           logreq xstring
@@ -23,7 +30,6 @@ pkgs.mkShell
           mathpartir
           newunicodechar
           minted
-          authblk
           xpatch
           # for lhs2tex
           # lazylist polytable

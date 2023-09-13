@@ -1,7 +1,10 @@
-\documentclass[draft, english]{jflart}
+\documentclass[english]{jflart}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{minted}
+\usepackage{etoolbox,xpatch}
+\usepackage[backend=biber, style=alphabetic]{biblatex}
+\addbibresource{bibliography.bib}
 
 % Numéro et année des JFLAs visées par l'article, obligatoire.
 \jfla{35}{2024}
@@ -24,6 +27,16 @@
 % Une commande définie par l'utilisateur
 \newcommand{\cmd}[1]{\texttt{\textbackslash {#1}}}
 
+\usepackage{newunicodechar}
+\newunicodechar{⊸}{\ensuremath{\multimap}}
+\newunicodechar{→}{\ensuremath{\to}}
+\makeatletter
+\AtBeginEnvironment{minted}{\dontdofcolorbox}
+\def\dontdofcolorbox{\renewcommand\fcolorbox[4][]{##4}}
+\xpatchcmd{\inputminted}{\minted@fvset}{\minted@fvset\dontdofcolorbox}{}{}
+\xpatchcmd{\mintinline}{\minted@fvset}{\minted@fvset\dontdofcolorbox}{}{} % see https://tex.stackexchange.com/a/401250/
+\makeatother
+
 \begin{document}
 
 \maketitle
@@ -40,9 +53,86 @@ Safety proofs for the API are not provided in this article though, and will be t
 
 \section{Introduction}
 
-Blabla intro.
+Destinations bring a taste of imperative programming in a pure functional environnement when performance really matters, without breaking memory safety.
 
-\bibliographystyle{alpha-fr}
-\bibliography{bibliography}
+
+
+Using destinations as a way of allocating and building functional data structures can lead to better time and/or space performance for critical parts of a program, but destinations also increase expressiveness of a functional language.
+
+For example, traversing a binary tree in a breadth-first fashion with monadic effects is notoriously hard to implement in a pure functional fashion. Indeed, when a node in the resulting tree is produced, we cannot build its children immediately because the effects of the children node creation would break the BFS order. Instead, we must store the path to that node in a queue, and come back much later to add its children, so that BFS effect order is preserved.
+
+With destinations in our toolbelt, the problem is much simpler, as we can just let that node be "incomplete" for the time being, store the destinations for its children in a queue, and fill them later when they reach the head of the queue. There is no need to store the path up to that node in a fancy fashion, and no need to build many temporary functional structures in memory either. In a way, destinations provide a single-use \emph{action-at-a-distance} concept.
+
+\section{Technical development}
+
+\subsection{API Design}
+
+The main design principle behind destination is that no structure can be read before all its destinations have been written to. That way, incomplete data structures can be freely passed around and stored, but need to be completed before any pattern-matching can be made on them.
+
+Hence we introduce a new data type \mintinline{haskell}`Incomplete r a b` where \mintinline{haskell}`a` stands for the type of the structure being built, and \mintinline{haskell}`b` is the type of what needs to be linearly consumed before the structure can be read.
+
+Types aren't linear by themselves in Linear Haskell. Instead, functions can be made linear or not, and linearity of resources are ensured through scope-functions: functions taking a callback that linearly consumes the resource (very much like continuation-passing style).
+
+Let's make things clearer with an example:
+\begin{minted}{haskell}
+data Resource
+
+withResource :: (Resource ⊸ a) → a
+\end{minted}
+
+If \mintinline{haskell}`withResource` is the only producer of \mintinline{haskell}`Resource`, then the only way to ever access a resource will be to supply a linear callback to \mintinline{haskell}`withResource`. Still, this is not enough ; because \mintinline{haskell}`\x → x` is indeed a linear callback, one could use \mintinline{haskell}`withResource (\x → x)` to leak a \mintinline{haskell}`Resource`, and then use it in a non-linear fashion.
+
+We must force the callback to actually consume the resource, and not leak it to the outside. To forbid the resource from appearing anywhere in the return type of the callback, we will ask the return type to be wrapped in \mintinline{haskell}`Ur`. Putting something in \mintinline{haskell}`Ur` is a non-linear operation, except for \mintinline{haskell}`Movable` types, which are basic ones (\mintinline{haskell}`Int`, \mintinline{haskell}`String`, \mintinline{haskell}`Char`...) and structures made of them. As linear resource is simply a data structure which doesn't implement \mintinline{haskell}`Movable`, and which cannot be wrapped linearly in \mintinline{haskell}`Ur`.
+
+With the following declaration, our linear resource cannot leak to the outside world, and must be consumed linearly by the callback (using other functions supplied by the API, written in direct style this time):
+
+\begin{minted}{haskell}
+class Movable a where
+  move :: a ⊸ Ur a
+
+data Resource
+
+withResource :: (Resource ⊸ Ur a) → Ur a
+updateResource :: Int ⊸ Resource ⊸ Resource
+closeResource :: Resources ⊸ ()
+
+-- OK
+withResource (\r → r & updateResource 42 & closeResource & move) :: Ur ()
+
+-- fails with linearity error
+withResource (\r → r & move) :: Ur Resource
+\end{minted}
+
+This is mostly the design principle that have been used for destinations in Haskell. In order to access the \mintinline{haskell}`Incomplete`'s \mintinline{haskell}`a` value, the \mintinline{haskell}`b` side must be transformed/consumed into something with type \mintinline{haskell}`Ur c`. Because the \mintinline{haskell}`b` side hosts the destinations initially, they have to be consumed by a linear callback mapping on \mintinline{haskell}`b` side before \mintinline{haskell}`fromReg` can be used to access the \mintinline{haskell}`a`. As we explained above, they cannot leak as there is no linear way to produce a \mintinline{haskell}`Ur Dest` from a \mintinline{haskell}`Dest`.
+
+\begin{minted}{haskell}
+newtype Incomplete r a b = Incomplete (a, b)
+
+instance Control.Functor (Incomplete r a) where
+  fmap :: (b ⊸ c) ⊸ Incomplete r a b ⊸ Incomplete r b c
+  fmap f (Incomplete (s, d)) = Incomplete (s, f d)
+
+fromRegExtract :: forall r a b. (RegionContext r) => Incomplete r a (Ur b) ⊸ Ur (a, b)
+\end{minted}
+
+\mintinline{haskell}`Region`, \mintinline{haskell}`RegionContext r` and \mintinline{haskell}`RegionToken r` are mostly implementation noise for the API. At the moment, destination-style programming is only possible in compact regions. Compact regions are special chunks on the heap that will only be very lightly inspected by the garbage collector, and thanks to that, we can do chirurgical memory updates in those without being afraid that it will interfere with garbage collection (especially move operations).
+
+Because we have immobile chunks of memory, destinations can be implemented as a wrapper over a raw pointer which points to the memory location where data have to be written:
+
+\begin{minted}{haskell}
+data Dest r a = Dest Addr#
+\end{minted}
+
+The phantom type parameter \mintinline{haskell}`r` that is present everywhere in the API ensures that objects can only interact with other ones from the same region (as outgoing pointers across different regions are not allowed by design of Compact regions).
+
+Allocation a new receiver of type \mintinline{haskell}`a` is done through \mintinline{haskell}`alloc`:
+
+\begin{minted}{haskell}
+alloc :: forall r a. RegionToken r ⊸ Incomplete r a (Dest r a)
+\end{minted}
+
+This function signature can be read that way : it consumes a region token, and returns an object holder, which upon consumption of a \mintinline{haskell}`Dest r a`, will unlock the object of type \mintinline{haskell}`a`.
+
+\printbibliography
 
 \end{document}
