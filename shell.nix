@@ -1,12 +1,9 @@
 with { pkgs = import ./nix {}; };
-let my-python-packages = ps: with ps; [
-    pygments
-    # other python packages
-  ];
-in
+
 pkgs.mkShell
   { buildInputs = with pkgs; [
-      (python3.withPackages my-python-packages)
+      python310Packages.pygments
+      which
       gnumake
       # coq
       # coqPackages.coqide
@@ -57,4 +54,4 @@ pkgs.mkShell
     [ pkgs.libertine
       pkgs.inconsolata
     ]; };
-}
+  }

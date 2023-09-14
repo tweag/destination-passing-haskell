@@ -3,6 +3,7 @@
 \usepackage[T1]{fontenc}
 \usepackage{minted}
 \usepackage{etoolbox,xpatch}
+\usepackage{ tipa }
 \usepackage[backend=biber, style=alphabetic]{biblatex}
 \addbibresource{bibliography.bib}
 
@@ -26,7 +27,8 @@
 
 % Une commande définie par l'utilisateur
 \newcommand{\cmd}[1]{\texttt{\textbackslash {#1}}}
-
+\newcommand{\mpar}{\text{\,\textramshorns\,}}
+\newcommand{\dest}{-\prec}
 \usepackage{newunicodechar}
 \newunicodechar{⊸}{\ensuremath{\multimap}}
 \newunicodechar{→}{\ensuremath{\to}}
@@ -51,17 +53,95 @@ With the implementation of destinations for Haskell through compact regions we p
 Safety proofs for the API are not provided in this article though, and will be the subject of a future article.
 \end{abstract}
 
+\tableofcontents{}
+
 \section{Introduction}
 
 Destinations bring a taste of imperative programming in a pure functional environnement when performance really matters, without breaking memory safety.
 
-
-
 Using destinations as a way of allocating and building functional data structures can lead to better time and/or space performance for critical parts of a program, but destinations also increase expressiveness of a functional language.
+
+\subsection{Problem space and motivation}
+
+\subsection{Framework}
+
+- GHC where purity is enforced
+
+- Also because it has good support for linear type discipline
+
+\section{Motivating examples for destination-style programming}
+
+\subsection{(Perf) Efficient Difference-list implementation}
+
+\subsection{(Expressiveness) BFS Tree mapping/traversal}
 
 For example, traversing a binary tree in a breadth-first fashion with monadic effects is notoriously hard to implement in a pure functional fashion. Indeed, when a node in the resulting tree is produced, we cannot build its children immediately because the effects of the children node creation would break the BFS order. Instead, we must store the path to that node in a queue, and come back much later to add its children, so that BFS effect order is preserved.
 
 With destinations in our toolbelt, the problem is much simpler, as we can just let that node be "incomplete" for the time being, store the destinations for its children in a queue, and fill them later when they reach the head of the queue. There is no need to store the path up to that node in a fancy fashion, and no need to build many temporary functional structures in memory either. In a way, destinations provide a single-use \emph{action-at-a-distance} concept.
+
+\subsection{(Perf) Deserializing from a structured format (S-Expr)}
+
+Derserialization is a very common task in application development, and can become a crucial part of the program performance-wise, when the program in question is meant to be fed with large chunks of serialized data.
+
+Most of the time, the result of deserialization will be a data tree, with hundred of nodes and leaves, whose consumption by the processing program will be strict because:
+\begin{itemize}
+  \item the programmer wants to catch any potential error in the input document early enough in the process;
+  \item most of the input will be read to produce the output anyway.
+\end{itemize}
+
+Also, it's uncommon for a part of the input (in its parsed but unprocessed form) to greatly outlive the rest of it. As a result, treating the deserialized data as a large object with a unique lifetime for all its parts is a decent  approximation when that allows easier memory management, as we will show in a next section.
+
+The current implementation of linear-dest is based on Compact Regions, which bring to the table the two aforementioned properties: strictness, and a shared lifetime for a tree of objects, in exchange of impressive garbage collection savings!
+
+Let's focus on a deserializer for S-expressions. S-expresssions are parenthesized lists whose elements are just seperated by spaces. These elements can be of several types: Int, String, Symbol (a textual token, with no quotes around it, unlike String), or (nested) list.
+
+Parsing a S-expression can be done concisely with three mutually recursive functions:
+\begin{itemize}
+  \item \mintinline{haskell}`parseSExpr` will scan the next character, and either dispatch to \mintinline{haskell}`parseSList` if it encounters an opening parenthesis, or to \mintinline{haskell}`parseSString` if it encounters an opening quote, or eventually parse the string into a number or symbol ;
+  \item \mintinline{haskell}`parseSList` will call \mintinline{haskell}`parseSExpr` to parse the next token, and then call itself again until reaching a closing parenthesis, accumulating the parsed elements along the way ;
+  \item \mintinline{haskell}`parseSString` will scans the input character by character and accumulate them until reaching a closing quote (taking escape sequences into consideration).
+\end{itemize}
+
+\begin{minted}{haskell}
+parseSExpr :: ByteString -> Int -> Either SExprParseError SExpr
+parseSExpr bs i = case bs !? i of
+  Nothing -> Left $ UnexpectedEOFSExpr i
+  Just c -> case c of
+    ')' -> Left $ UnexpectedClosingParen i
+    '(' -> parseSList bs (i + 1) []
+    '"' -> parseSString bs (i + 1) False []
+    _ ->
+      let token = extractNextToken bs i -- take chars until delimiter/space
+       in if null token
+            then -- c is a (leading) space, skip it and recurse
+              parseSExpr bs (i + 1)
+            else case parseInt token of
+              Just int -> Right $ SInteger (i + length token - 1) int
+              Nothing -> Right $ SSymbol (i + length token - 1) (bsToString token)
+
+parseSList :: ByteString -> Int -> [SExpr] -> Either SExprParseError SExpr
+parseSList bs i acc = case bs !? i of
+  Nothing -> Left $ UnexpectedEOFSList i
+  Just c -> \cases
+    | c == ')' -> Right $ SList i (reverse acc)
+    | isSpace c -> parseSList bs (i + 1) acc
+    | otherwise -> case parseSExpr bs i of
+        Left err -> Left err
+        Right children -> parseSList bs (endPos children + 1) (children : acc)
+
+parseSString :: ByteString -> Int -> Bool -> [Char] -> Either SExprParseError SExpr
+parseSString bs i escape acc = case bs !? i of
+  Nothing -> Left $ UnexpectedEOFSString i
+  Just c -> case c of
+    '"' | not escape -> Right $ SString i (reverse acc)
+    '\\' | not escape -> parseSString bs (i + 1) True acc
+    'n' | escape -> parseSString bs (i + 1) False ('\n' : acc)
+    _ -> parseSString bs (i + 1) False (c : acc)
+\end{minted}
+
+- More efficient GC-wise (see -T benchmark)
+
+- More efficient runtime-wise
 
 \section{Technical development}
 
@@ -115,7 +195,33 @@ instance Control.Functor (Incomplete r a) where
 fromRegExtract :: forall r a b. (RegionContext r) => Incomplete r a (Ur b) ⊸ Ur (a, b)
 \end{minted}
 
-\mintinline{haskell}`Region`, \mintinline{haskell}`RegionContext r` and \mintinline{haskell}`RegionToken r` are mostly implementation noise for the API. At the moment, destination-style programming is only possible in compact regions. Compact regions are special chunks on the heap that will only be very lightly inspected by the garbage collector, and thanks to that, we can do chirurgical memory updates in those without being afraid that it will interfere with garbage collection (especially move operations).
+\mintinline{haskell}`Region`, \mintinline{haskell}`RegionContext r` and \mintinline{haskell}`RegionToken r` are mostly implementation noise for the API. There presence will be justified in the next subsection.
+
+Allocation a new receiver of type \mintinline{haskell}`a` is done through \mintinline{haskell}`alloc`:
+
+\begin{minted}{haskell}
+alloc :: forall r a. RegionToken r ⊸ Incomplete r a (Dest r a)
+\end{minted}
+
+This function signature can be read that way : it consumes a region token, and returns an object holder, which upon consumption of a \mintinline{haskell}`Dest r a`, will unlock the object of type \mintinline{haskell}`a`. At this point, the return value of `alloc` is pretty much the identity: give it an \mintinline{haskell}`a` (to fill the \mintinline{haskell}`Dest r a`), and it will return an \mintinline{haskell}`a`.
+
+To fill that hole represented by \mintinline{haskell}`Dest r a`, several functions are available:
+
+\begin{itemize}
+  \item \mintinline{haskell}`fillLeaf :: forall r a. (RegionContext r) => a -> Dest r a %1 -> ()` \\will use a non-linear value of type \mintinline{haskell}`a` to fill the hole ;
+  \item \mintinline{haskell}`fillComp :: forall r a b. (RegionContext r) => Incomplete r a b %1 -> Dest r a %1 -> b` \\will use an incomplete object of type \mintinline{haskell}`a` to fill the hole ; and the resulting holes for the bigger structure will be the ones of that object. In other terms, \mintinline{haskell}`fillComp` composes two structures with holes together ;
+  \item \mintinline{haskell}`fill :: forall liftedCtor r a. Dest r a %1 -> DestsOf liftedCtor r a` \\takes a constructor as a type parameter (\mintinline{haskell}`liftedCtor`) and will write a shallow instance of that constructor into the \mintinline{haskell}`Dest r a`, returning the destinations corresponding to that constructor's fields.\\ For example, \mintinline{haskell}`fill @Just @r @(Maybe Int) :: Dest r (Maybe Int) %1 -> Dest r Int` writes a shallow \mintinline{haskell}`Just` constructor in the \mintinline{haskell}`Maybe Int` hole, and returns the \mintinline{haskell}`Dest Int` corresponding to the hole of type \mintinline{haskell}`Int` that still needs to be filled.
+\end{itemize}
+
+\mintinline{haskell}`fill` is probably the most interesting of the three, and will be the most used one too, because it enables the user to build data structures in a top-down approach, which complements very well the natural bottom-up way of constructing data structures in functional programming languages. Thanks to destinations, the user can now choose between those two approaches and pick the most efficient or more natural way for the problem at hand.
+
+\mintinline{haskell}`fillComp` offers a way to mix both approaches: one can build small chunks in a top-down approach, and combine them together in a bottom-up fashion even if they aren't all complete.
+
+\mintinline{haskell}`fillLeaf` is just a restriction of \mintinline{haskell}`fillComp`. It is used very frequently for types whose constructors aren't \mintinline{haskell}`Fill`able because they wrap over unpacked or primitive fields.
+
+\subsection{Note about Compact Regions}
+
+At the moment, destination-style programming is only possible in compact regions. Compact regions are special chunks on the heap that will only be very lightly inspected by the garbage collector, and thanks to that, we can do chirurgical memory updates in those without being afraid that it will interfere with garbage collection (especially move operations).
 
 Because we have immobile chunks of memory, destinations can be implemented as a wrapper over a raw pointer which points to the memory location where data have to be written:
 
@@ -125,13 +231,53 @@ data Dest r a = Dest Addr#
 
 The phantom type parameter \mintinline{haskell}`r` that is present everywhere in the API ensures that objects can only interact with other ones from the same region (as outgoing pointers across different regions are not allowed by design of Compact regions).
 
-Allocation a new receiver of type \mintinline{haskell}`a` is done through \mintinline{haskell}`alloc`:
+\subsection{User-land haskell implementation details}
+ 
+(Maybe merge with previous subsection)
 
-\begin{minted}{haskell}
-alloc :: forall r a. RegionToken r ⊸ Incomplete r a (Dest r a)
-\end{minted}
+- Need for indirection (because of composition)
 
-This function signature can be read that way : it consumes a region token, and returns an object holder, which upon consumption of a \mintinline{haskell}`Dest r a`, will unlock the object of type \mintinline{haskell}`a`.
+- How to make fillLeaf based on fillComp but without too much overhead
+
+- Efficiently implement fromReg and fromRegExtract
+
+- How fill works and is derived via Generics
+
+\subsection{Changes to GHC's internals and RTS}
+
+- Story about getting the info table ptr or a given constructor (blogpost)
+
+- How to allocate a shallow constructor
+
+- Note about how to emulate that with gShallowCtor and "raw memory" runtime reflection when not using a custom GHC version
+
+\section{Evaluating performance of destination-style programming}
+
+\subsection{Benchmarking / profiling strategy}
+
+- Three modes (-T, -s, -p)
+
+- How to evaluate naive code (why we use both copyIntoReg and force)
+
+\subsection{Performance of map implementation (in a strict context)}
+
+- How this is important for Ocaml
+
+\subsection{Performance of the SExpr parser}
+
+\subsection{Performance of BFS Tree traversal}
+
+\subsection{Qualitative evaluation of destination code VS naive code}
+
+- TODO: implement a naive implement of functional mapMBFS
+
+\section{Conclusion and related work}
+
+- Why it's an improvement over Minamide
+
+- Lifting the non-linear restriction for elements stored in dest-allocated structures (= requires more theoretical work)
+
+- Using destinations in different contexts than compact regions (normal GC heap, other kinds of chunk-allocated memory)
 
 \printbibliography
 
