@@ -28,6 +28,7 @@ pkgs.mkShell
           newunicodechar
           minted
           xpatch
+          ulem
           # for lhs2tex
           # lazylist polytable
 

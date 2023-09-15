@@ -4,6 +4,7 @@
 \usepackage{minted}
 \usepackage{etoolbox,xpatch}
 \usepackage{ tipa }
+\usepackage[normalem]{ulem}
 \usepackage[backend=biber, style=alphabetic]{biblatex}
 \addbibresource{bibliography.bib}
 
@@ -32,6 +33,8 @@
 \usepackage{newunicodechar}
 \newunicodechar{⊸}{\ensuremath{\multimap}}
 \newunicodechar{→}{\ensuremath{\to}}
+\newunicodechar{⇒}{\ensuremath{\Rightarrow}}
+\newunicodechar{∀}{\ensuremath{\forall}}
 \makeatletter
 \AtBeginEnvironment{minted}{\dontdofcolorbox}
 \def\dontdofcolorbox{\renewcommand\fcolorbox[4][]{##4}}
@@ -75,9 +78,30 @@ Using destinations as a way of allocating and building functional data structure
 
 \subsection{(Expressiveness) BFS Tree mapping/traversal}
 
-For example, traversing a binary tree in a breadth-first fashion with monadic effects is notoriously hard to implement in a pure functional fashion. Indeed, when a node in the resulting tree is produced, we cannot build its children immediately because the effects of the children node creation would break the BFS order. Instead, we must store the path to that node in a queue, and come back much later to add its children, so that BFS effect order is preserved.
+Traversing a binary tree in a breadth-first fashion with monadic effects is notoriously hard to implement in a pure functional fashion. Indeed, when a node in the resulting tree is produced, we cannot build its children immediately because the effects of the children node creation would break the BFS order. Instead, we must store the path to that node in a queue, and come back much later to add its children, so that BFS effect order is preserved.
 
 With destinations in our toolbelt, the problem is much simpler, as we can just let that node be "incomplete" for the time being, store the destinations for its children in a queue, and fill them later when they reach the head of the queue. There is no need to store the path up to that node in a fancy fashion, and no need to build many temporary functional structures in memory either. In a way, destinations provide a single-use \emph{action-at-a-distance} concept.
+
+\begin{minted}[linenos]{haskell}
+data Tree a = Nil | Node a (Tree a) (Tree a)
+
+mapStateBFS :: ∀ a b s. (s → a → (s, b)) → s → Tree a → (s, Tree b)
+mapStateBFS f s0 tree =
+  buildInRegionAndExtract $
+    \token → alloc token <&>
+      \dtree → go s0 (singleton (Ur tree, dtree))
+  where
+    go :: s → Queue (Ur (Tree a), Dest (Tree b)) ⊸ Ur s
+    go s q = case dequeue q of
+      Nothing → Ur s
+      Just ((utree, dtree), q') → case utree of
+        Ur Nil → dtree & fill @'Nil `lseq` go s q'
+        Ur (Node x tl tr) → case dtree & fill @'Node of
+          (dr, dtl, dtr) →
+            let q'' = q' `enqueue` (Ur tl, dtl) `enqueue` (Ur tr, dtr)
+                (s', r) = f s x
+              in dr & fillLeaf r `lseq` go s' q''
+\end{minted}
 
 \subsection{(Perf) Deserializing from a structured format (S-Expr)}
 
@@ -102,42 +126,110 @@ Parsing a S-expression can be done concisely with three mutually recursive funct
   \item \mintinline{haskell}`parseSString` will scans the input character by character and accumulate them until reaching a closing quote (taking escape sequences into consideration).
 \end{itemize}
 
-\begin{minted}{haskell}
-parseSExpr :: ByteString -> Int -> Either SExprParseError SExpr
+\begin{minted}[linenos]{haskell}
+parseSExpr :: ByteString → Int → Either ParseError SExpr
 parseSExpr bs i = case bs !? i of
-  Nothing -> Left $ UnexpectedEOFSExpr i
-  Just c -> case c of
-    ')' -> Left $ UnexpectedClosingParen i
-    '(' -> parseSList bs (i + 1) []
-    '"' -> parseSString bs (i + 1) False []
-    _ ->
-      let token = extractNextToken bs i -- take chars until delimiter/space
-       in if null token
+  Nothing → Left $ UnexpectedEOFSExpr i
+  Just c → case c of
+    ')' → Left $ UnexpectedClosingParen i
+    '(' → parseSList bs (i + 1) []
+    '"' → parseSString bs (i + 1) False []
+    _ →
+      let tok = extractNextToken bs i -- take chars until delimiter/space
+       in if null tok
             then -- c is a (leading) space, skip it and recurse
               parseSExpr bs (i + 1)
-            else case parseInt token of
-              Just int -> Right $ SInteger (i + length token - 1) int
-              Nothing -> Right $ SSymbol (i + length token - 1) (bsToString token)
+            else case parseInt tok of
+              Just int → Right $ SInteger (i + length tok - 1) int
+              Nothing → Right $ SSymbol (i + length tok - 1) (toString tok)
 
-parseSList :: ByteString -> Int -> [SExpr] -> Either SExprParseError SExpr
+parseSList :: ByteString → Int → [SExpr] → Either ParseError SExpr
 parseSList bs i acc = case bs !? i of
-  Nothing -> Left $ UnexpectedEOFSList i
-  Just c -> \cases
-    | c == ')' -> Right $ SList i (reverse acc)
-    | isSpace c -> parseSList bs (i + 1) acc
-    | otherwise -> case parseSExpr bs i of
-        Left err -> Left err
-        Right children -> parseSList bs (endPos children + 1) (children : acc)
+  Nothing → Left $ UnexpectedEOFSList i
+  Just c → \cases
+    | c == ')' → Right $ SList i (reverse acc)
+    | isSpace c → parseSList bs (i + 1) acc
+    | otherwise → case parseSExpr bs i of
+        Left err → Left err
+        Right child → parseSList bs (endPos child + 1) (child : acc)
 
-parseSString :: ByteString -> Int -> Bool -> [Char] -> Either SExprParseError SExpr
+parseSString :: ByteString → Int → Bool → [Char] → Either ParseError SExpr
 parseSString bs i escape acc = case bs !? i of
-  Nothing -> Left $ UnexpectedEOFSString i
-  Just c -> case c of
-    '"' | not escape -> Right $ SString i (reverse acc)
-    '\\' | not escape -> parseSString bs (i + 1) True acc
-    'n' | escape -> parseSString bs (i + 1) False ('\n' : acc)
-    _ -> parseSString bs (i + 1) False (c : acc)
+  Nothing → Left $ UnexpectedEOFSString i
+  Just c → case c of
+    '"' | not escape → Right $ SString i (reverse acc)
+    '\\' | not escape → parseSString bs (i + 1) True acc
+    'n' | escape → parseSString bs (i + 1) False ('\n' : acc)
+    _ → parseSString bs (i + 1) False (c : acc)
 \end{minted}
+
+Now, this implementation is already quite efficient for a strict setting. The functions are as tail-recursive as they can be, and they use indexing and slicing into a bytestring ($\mathcal{O}(1)$ operation) instead of allocating tons of strings on the heap.
+
+That being said, it is possible to obtain very significative performance gains by using destinations with only very little stylistic changes in the code.
+
+Accumulators of tail-recursive functions just have to be changed into destinations. Instead of writing elements into a list that will be reversed at the end as we did before, the program in the destination style will directly write the elements into their final location.
+
+It is good to note that destination allow to reverse the natural order in which a structure is built. For a list, the natural operation in functional programming languages is \emph{prepend}/\emph{cons}, which adds an element at the front of an existing list (bottom-up approach). Thanks to destinations, it's possible to build a list starting from its top element first, and adding new elements at the end of it (\emph{append}/\emph{fillCons}). It's entirely possible to mix both approaches too, as it will be detailed in the API section.
+
+\newcommand{\mnew}[1]{\colorbox{green}{#1}}
+\newcommand{\mold}[1]{\colorbox{red}{\sout{#1}}}
+
+\begin{minted}[escapeinside=°°,linenos]{haskell}
+parseSExprDS :: ByteString → Int → Dest SExpr ⊸ Either ParseError Int
+parseSExprDS bs i d = case bs !? i of
+  Nothing → °\mnew{d & fillLeaf defaultSExpr}° `lseq` Left $ UnexpectedEOFSExpr i
+  Just c → case c of
+    ')' → °\mnew{d & fillLeaf defaultSExpr}° `lseq` Left $ UnexpectedClosingParen i
+    '(' → parseSListDS bs (i + 1) °\mnew{(d & fill @'SList)}\mold{[]}°
+    '"' → parseSStringDS bs (i + 1) False °\mnew{(d & fill @'SString)}\mold{[]}°
+    _ →
+      let tok = extractNextToken bs i -- take chars until delimiter/space
+        in if null tok
+            then -- c is a (leading) space, skip it and recurse
+              parseSExprDS bs (i + 1) d
+            else case parseInt tok of
+              Just int →
+                °\mnew{d & fill @'SInteger & fillLeaf int}°
+                  `lseq` Right (i + length tok - 1)
+              _ →
+                °\mnew{d & fill @'SSymbol & fillLeaf (toString tok)}°
+                  `lseq` Right (i + length tok - 1)
+
+parseSListDS :: ByteString → Int → Dest [SExpr] ⊸ Either ParseError Int
+parseSListDS bs i d = case bs !? i of
+  Nothing → °\mnew{d & fill @'[]}° `lseq` Left $ UnexpectedEOFSList i
+  Just c →
+    \cases
+      | c == ')' → °\mnew{d & fill @'[]}° `lseq` Right i°\mold{(reverse acc)}°
+      | isSpace c → parseSListDS bs (i + 1) d
+      | otherwise →
+          let !(dh, dt) = °\mnew{d & fill @'(:)}°
+          in case parseSExprDS bs i °\mnew{dh}° of
+                Left err → dt & fill @'[] `lseq` Left err
+                Right endPos → parseSListDS bs (endPos + 1) °\mnew{dt}\mold{(child : acc)}°
+
+parseSStringDS :: ByteString → Int → Bool → Dest [Char] ⊸ Either ParseError Int
+parseSStringDS bs i escape d = case bs !? i of
+  Nothing → °\mnew{d & fill @'[]}° `lseq` Left $ UnexpectedEOFSString i
+  Just c → case c of
+    '"' | not escape → °\mnew{d & fill @'[]}° `lseq` Right i°\mold{(reverse acc)}°
+    '\\' | not escape → parseSStringDS bs (i + 1) True d
+    'n' | escape →
+        let !(dh, dt) = °\mnew{d & fill @'(:)}°
+         in °\mnew{dh & fillLeaf '\textbackslash{}n'}° `lseq` parseSStringDS bs (i + 1) False °\mnew{dt}\mold{('\textbackslash{}n' : acc)}°
+    _ →
+        let !(dh, dt) = °\mnew{d & fill @'(:)}°
+         in °\mnew{dh & fillLeaf c}° `lseq` parseSStringDS bs (i + 1) False °\mnew{dt}\mold{(c : acc)}°
+\end{minted}
+
+
+\begin{itemize}
+  \item Even for error cases, we are forced to consume the destination that we receive as an argument, hence we write some sensible default data to it (see lines 3, 5, 23 and 36)
+  \item Because of the top-down approach, it's necessary to choose which variant of SExpr is being built very early (by writing the corresponding constructor into the \mintinline{haskell}`SExpr` destination), instead of building an accumulator and wrapping the variant constructor over it as it was done in the naive implementation (see lines 6 and 7) ;
+  \item The SExpr value resulting from the call of \mintinline{haskell}`parseSExpr` inside \mintinline{haskell}`parseSList` is no longer collected by the caller ; but instead written directly into its final location by the callee (see lines 30 to 32).
+  \item Adding an element \mintinline{haskell}`a` to the accumulator \mintinline{haskell}`[a]` is replaced with adding a new cons cell with \mintinline{haskell}`fill @'(:)`, writing the element to the head destination (\mintinline{haskell}`Dest a`), and then continuing the processing with the tail destination (\mintinline{haskell}`Dest [a]`) (see lines 29, 32, 42 and 45).
+  \item Instead of reversing and returning the accumulator at the end of the processing, it is enough to complete the list by writing a nil element to the tail destination (with \mintinline{haskell}`fill @'[]`) (see lines 26 and 38).
+\end{itemize}
 
 - More efficient GC-wise (see -T benchmark)
 
@@ -192,7 +284,7 @@ instance Control.Functor (Incomplete r a) where
   fmap :: (b ⊸ c) ⊸ Incomplete r a b ⊸ Incomplete r b c
   fmap f (Incomplete (s, d)) = Incomplete (s, f d)
 
-fromRegExtract :: forall r a b. (RegionContext r) => Incomplete r a (Ur b) ⊸ Ur (a, b)
+fromRegExtract :: ∀ r a b. (RegionContext r) ⇒ Incomplete r a (Ur b) ⊸ Ur (a, b)
 \end{minted}
 
 \mintinline{haskell}`Region`, \mintinline{haskell}`RegionContext r` and \mintinline{haskell}`RegionToken r` are mostly implementation noise for the API. There presence will be justified in the next subsection.
@@ -200,7 +292,7 @@ fromRegExtract :: forall r a b. (RegionContext r) => Incomplete r a (Ur b) ⊸ U
 Allocation a new receiver of type \mintinline{haskell}`a` is done through \mintinline{haskell}`alloc`:
 
 \begin{minted}{haskell}
-alloc :: forall r a. RegionToken r ⊸ Incomplete r a (Dest r a)
+alloc :: ∀ r a. RegionToken r ⊸ Incomplete r a (Dest r a)
 \end{minted}
 
 This function signature can be read that way : it consumes a region token, and returns an object holder, which upon consumption of a \mintinline{haskell}`Dest r a`, will unlock the object of type \mintinline{haskell}`a`. At this point, the return value of `alloc` is pretty much the identity: give it an \mintinline{haskell}`a` (to fill the \mintinline{haskell}`Dest r a`), and it will return an \mintinline{haskell}`a`.
@@ -208,9 +300,9 @@ This function signature can be read that way : it consumes a region token, and r
 To fill that hole represented by \mintinline{haskell}`Dest r a`, several functions are available:
 
 \begin{itemize}
-  \item \mintinline{haskell}`fillLeaf :: forall r a. (RegionContext r) => a -> Dest r a %1 -> ()` \\will use a non-linear value of type \mintinline{haskell}`a` to fill the hole ;
-  \item \mintinline{haskell}`fillComp :: forall r a b. (RegionContext r) => Incomplete r a b %1 -> Dest r a %1 -> b` \\will use an incomplete object of type \mintinline{haskell}`a` to fill the hole ; and the resulting holes for the bigger structure will be the ones of that object. In other terms, \mintinline{haskell}`fillComp` composes two structures with holes together ;
-  \item \mintinline{haskell}`fill :: forall liftedCtor r a. Dest r a %1 -> DestsOf liftedCtor r a` \\takes a constructor as a type parameter (\mintinline{haskell}`liftedCtor`) and will write a shallow instance of that constructor into the \mintinline{haskell}`Dest r a`, returning the destinations corresponding to that constructor's fields.\\ For example, \mintinline{haskell}`fill @Just @r @(Maybe Int) :: Dest r (Maybe Int) %1 -> Dest r Int` writes a shallow \mintinline{haskell}`Just` constructor in the \mintinline{haskell}`Maybe Int` hole, and returns the \mintinline{haskell}`Dest Int` corresponding to the hole of type \mintinline{haskell}`Int` that still needs to be filled.
+  \item \mintinline{haskell}`fillLeaf :: ∀ r a. (RegionContext r) ⇒ a → Dest r a ⊸ ()` \\will use a non-linear value of type \mintinline{haskell}`a` to fill the hole ;
+  \item \mintinline{haskell}`fillComp :: ∀ r a b. (RegionContext r) ⇒ Incomplete r a b ⊸ Dest r a ⊸ b` \\will use an incomplete object of type \mintinline{haskell}`a` to fill the hole ; and the resulting holes for the bigger structure will be the ones of that object. In other terms, \mintinline{haskell}`fillComp` composes two structures with holes together ;
+  \item \mintinline{haskell}`fill :: ∀ liftedCtor r a. Dest r a ⊸ DestsOf liftedCtor r a` \\takes a constructor as a type parameter (\mintinline{haskell}`liftedCtor`) and will write a shallow instance of that constructor into the \mintinline{haskell}`Dest r a`, returning the destinations corresponding to that constructor's fields.\\ For example, \mintinline{haskell}`fill @Just @r @(Maybe Int) :: Dest r (Maybe Int) ⊸ Dest r Int` writes a shallow \mintinline{haskell}`Just` constructor in the \mintinline{haskell}`Maybe Int` hole, and returns the \mintinline{haskell}`Dest Int` corresponding to the hole of type \mintinline{haskell}`Int` that still needs to be filled.
 \end{itemize}
 
 \mintinline{haskell}`fill` is probably the most interesting of the three, and will be the most used one too, because it enables the user to build data structures in a top-down approach, which complements very well the natural bottom-up way of constructing data structures in functional programming languages. Thanks to destinations, the user can now choose between those two approaches and pick the most efficient or more natural way for the problem at hand.
