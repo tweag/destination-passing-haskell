@@ -323,8 +323,28 @@ data Dest r a = Dest Addr#
 
 The phantom type parameter \mintinline{haskell}`r` that is present everywhere in the API ensures that objects can only interact with other ones from the same region (as outgoing pointers across different regions are not allowed by design of Compact regions).
 
+A \mintinline{haskell}`Region` object is implemented as a newtype over \mintinline{haskell}`Compact FirstInhabitant`, which is composed of a pointer to the region header, a lock (because compact region writes are not thread-safe at the primitive level), and a pointer to a \mintinline{haskell}`FirstInhabitant` inside the region.
+
+\mintinline{haskell}`RegionToken r` carries a non-linear \mintinline{haskell}`Region` and is used when a \mintinline{haskell}`Proxy r` would be necessary anyway to infer the \mintinline{haskell}`r` of \mintinline{haskell}`Dest`/\mintinline{haskell}`Incomplete` in a function signature. \mintinline{haskell}`RegionContext r` makes the region argument implicit when the region identifier \mintinline{haskell}`r` is already part of the types of the function arguments.
+
 \subsection{User-land haskell implementation details}
  
+One issue I had during implementation was choosing the right representation for \mintinline{haskell}`a` in \mintinline{haskell}`Incomplete r a b`.
+
+Ideally, we want \mintinline{haskell}`Incomplete r a b` to contains a \mintinline{haskell}`a` and a \mintinline{haskell}`b`, and let the \mintinline{haskell}`a` free when the \mintinline{haskell}`b` is fully consumed (or linearly transformed into \mintinline{haskell}`Ur c`). So the most straightforward representation of Incomplete would be a pair \mintinline{haskell}`data Incomplete r a b = Incomplete a b`.
+
+It is also natural for \mintinline{haskell}`alloc` to return an \mintinline{haskell}`Incomplete r a (Dest a)`: as soon as the \mintinline{haskell}`Dest a` is linearly consumed, a \mintinline{haskell}`a` will be available.
+
+However, building something of type \mintinline{haskell}`Incomplete r a (Dest a)` is not easy. The \mintinline{haskell}`Dest a` in question should carry the address of a memory cell in which the address of a constructor of type \mintinline{haskell}`a` will be written (by \mintinline{haskell}`fill` or a similar function). That memory cell is named \emph{root receiver}, because it will receive the address of the root of the object being built. Given the data definition above, the root receiver should hence be the first field of the \mintinline{haskell}`Incomplete` object. But the Incomplete object is not part of the compact region itself! It lives in the normal GC heap (which is crucial for early deallocation and memory optimizations) ; so it may move. As a result, we cannot just use the address of its left field as a destination and the left field as a root receiver.
+
+The next natural move is to allocate a wrapper \mintinline{haskell}`W a` for \mintinline{haskell}`a` in the region, that will act as a root receiver, and have \mintinline{haskell}`data Incomplete r a b = Incomplete (W a) b`. Because the \mintinline{haskell}`a` will have to be wrapped in \mintinline{haskell}`Ur` when it is complete (see \mintinline{haskell}`fromReg :: ∀ r a. (RegionContext r) ⇒ Incomplete r a () ⊸ Ur a`), we might as well use \mintinline{haskell}`Ur` as a wrapper and declare \mintinline{haskell}`data Incomplete r a b = Incomplete (Ur a) b`. It solves the previous issue of not having a receiver to write into.
+
+Unfortunately, that approach is quite unsatisfying because any \mintinline{haskell}`Incomplete` object will now allocate a few words into the region that won't be collected for a long time. In particular, putting a non-linear value inside the region with \mintinline{haskell}`intoReg :: ∀ r a. RegionToken r ⊸ a → Incomplete r a ()` will allocate an unnecessary \mintinline{haskell}`Ur` wrapper, as the object is already fully built, and thus doesn't need a root receiver. With the \mintinline{haskell}`Ur` solution, it's no longer efficient to write \mintinline{haskell}`fillLeaf` as a composition \mintinline{haskell}`fillComp . intoReg (getToken @r)`, and \mintinline{haskell}`fillLeaf` needs a dedicated optimized implementation.
+
+Another approach we explored is to represent an \mintinline{haskell}`Incomplete` as a piece of data structure that would be concretized when it is given a root receiver. Delaying the construction of the structure that way is not efficient though, because instead of writing a structure to memory, we create huge closures representing the action of creating the structure.
+
+Finally, I decided to embed the \mintinline{haskell}`a` field in \mintinline{haskell}`Incomplete` not in a regular data constructor wrapper, but instead in a STG indirection closure (\mintinline{haskell}`stg_IND` symbol). The indirection closure is allocated into the compact region in the \mintinline{haskell}`alloc` case (for the same reasons as the \mintinline{haskell}`Ur` above was), but no indirection closure is needed in \mintinline{haskell}`intoReg`, we can just store the fully built \mintinline{haskell}`a` directly in \mintinline{haskell}`Incomplete`. That way, we keep uniformity in the typing and runtime behaviour of \mintinline{haskell}`Incomplete` in both cases (as indirections are transparent for the RTS), and ensure that the overhead of `fillLeaf`/\mintinline{haskell}`intoReg` is very small, at the cost of a few more alloc-ed words for each call of \mintinline{haskell}`alloc`. This is a fair price to pay because any real-world program should call \mintinline{haskell}`fillLeaf` way more than \mintinline{haskell}`alloc` (which is only required to create the root of a new big object).
+
 (Maybe merge with previous subsection)
 
 - Need for indirection (because of composition)
