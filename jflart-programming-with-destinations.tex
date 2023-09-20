@@ -397,7 +397,7 @@ The representation for `(a, b)' gives
     (M1 C (MetaCons °\mnew{"(,)"}° PrefixI False) (
       M1 S [...] °\mnew{(K1 R a)}°
       :*: M1 S °\mnew{(K1 R b)}°))
-  \end{minted}
+\end{minted}
 
 indicating that there are two fields, one of type `a' and one of type `b', with the `(,)' data constructor.
 
@@ -409,11 +409,43 @@ The implementation we described in the previous parts relies on being able to al
 
 Usually, in Haskell, every field must be explicitly specified to allocate a constructor closure. This definitely makes sense as there is no (safe) way to later update a field in a mutable/in-place fashion; so an unspecified field would stay unspecified forever.
 
-Of course, it is possible to overcome that well-founded rule by using a unique "joker value" for every field of a constructor: `Right undefined' or `(undefined, undefined)' are valid haskell values that shouldn't blow up too fast. Theoretically, we hence have a way to allocate a somewhat shallow constructor.
+Of course, it is possible to overcome that well-founded rule by using a unique \emph{joker value} for every field of a constructor: `Right undefined' or `(undefined, undefined)' are valid haskell values that shouldn't blow up too fast. Using an unsafe coercion works too: `(unsafeCoerce (), unsafeCoerce ()) :: (a, b)' is valid. Theoretically, we hence have a way to allocate a somewhat shallow constructor.
 
 That being said, there is no primitive in GHC at the moment that allows to allocate a value directly in a compact region. The only way to put something in a region is to copy something that has already been allocated in the normal GC heap. So even with the trick described above, the constructor closure would need to be allocated twice.
 
-As a result, in order to obtain the maximum performance and memory gains from the use of destination, I had no other choice than to tweak the GHC compiler and add a new primitive operation in charge of allocating a shallow constructor directly into a compact region.
+As a result, in order to obtain the maximum performance and memory gains from the use of destination, I had no other choice than to tweak the GHC compiler and add a new primitive operation (\emph{primop}) in charge of allocating a shallow constructor directly into a compact region.
+
+\paragraph{About GHC architecture, RTS and primops}
+
+GHC is the main compiler for the Haskell programming language, and its compilation model involves several intermediary languages.
+
+First, Haskell code is turned into Core, a typed language whose syntax is mostly a subset of Haskell one. A lot of Haskell constructs are desugared into constructors and case expressions, type applications are made explicit, etc.
+Then, several optimization steps are made on the Core output, like removing case expressions on known constructors, or floating `let` expressions (moving them upwards in the code to factor out some computations).
+
+When all Core optimizations have been made, Core code is then transformed into STG code. In STG, all memory objects (called \emph{closures}) have the same memory representation, in the form of a pointer to a struct called the \emph{info table}, and a payload of a variable size (composed of primitive values and pointers to other closures). Because Haskell works in a lazy fashion, closures might not represent evaluated values, so the info table of each closure contains a pointer to a block of code that is responsible for evaluating the sub-expression that the closure represents. In other terms, the caller is not responsible for knowing how to evaluate the closure, but the closure itself is.
+As you can imagine, having a dedicated info table with each closure would be excessively expensive memory-wise (as both of them would need to be dynamically allocated). Instead, the STG uses sharing as most as possible, and for example, every dynamic closure representing the constructor application of a given constructor (let's say `Just`) will have the same info table pointer, pointing to a single statically-allocated info table. Indeed, no matter what type of argument it is applied to, every `Just` instance will have the same memory layout (only one boxed argument as a payload), and the same evaluation code (doing nothing and returning immediately because a constructor application is already in weak-head normal form). That kind of sharing in fact quite common in other programming languages too: virtual tables are shared in the same way in C++.
+
+Other specific info tables are also being shared in the STG: the ones for "blackholes" (which is used to indicate that a closure is currently under evaluation by a thread and that its result is still pending); the ones for indirection, etc.
+
+All that sharing is made through the use of labels:
+
+- when the declaration of a data constructor is encountered (definition site), the corresponding info table is emitted to the static area of the output program, and its address is associated with the label `<constructor name>_con_info`
+- when the use of a data constructor is encountered, the label `<constructor name>_con_info` is used in place of an actual address in the closure that is emitted
+- later on in the compilation process, those labels will be converted by the linker into actual addresses
+
+Now, the runtime behaviour of a Haskell program is directed by the \emph{run-time system}, or RTS, which is a software component written in a mix of C and C-- (the last language in the compilation pipeline of Haskell for a native build). The RTS is built once for all when GHC itself is being built, and it is then included in every executable produced by GHC.
+
+Its role is to manage threads, organize garbage collection and also to manage compact regions (among other things). The RTS defines various primops that allow the haskell programmer to interact with it for those needs. For example, `compactAdd#' is the primitive operation that copies a closure into an existing compact region, fully evaluating its potentiel sub-expressions along the way.
+
+There are also primops in GHC which are meant to be resolved at the \emph{Core to Stg} phase (emitting some code at compile time), but which don't trigger any specific interaction with the RTS at runtime. Among those are all the primitive numeric operators on primitive types (`+#', `-#'...), and more generally all the performance-critical operations working on unboxed types, and which don't require any specific interaction or precaution with garbage collection or thread execution, or don't need a specific allocation scheme, etc.
+
+It is important to note for the next of that part that the RTS cannot really access information that would have been made available during the compilation of a specific haskell program. Indeed, the RTS included in the final executable for the given program is the same as the one included in all other executables made with the same version of GHC ; it isn't possible to parametrize the RTS with data collected during the compilation of the given program (ex: types used or defined in the program). The only data channel I found between the compilation stage of a program and the RTS is to reify the needed compile-time information into a runtime value that will later be passed to the RTS through a primop call.
+
+\paragraph{Find a good title here}
+
+What I want to do is twofold:
+- First, add a primitive to the RTS to allocate space into a compact region for a shallow constructor
+- Second, add a non-RTS primitive to reify the necessary information about a constructor into a runtime-value so that it can be communicated to the RTS (because the RTS cannot access that itself, as I explained above)
 
 - Story about getting the info table ptr or a given constructor (blogpost)
 
