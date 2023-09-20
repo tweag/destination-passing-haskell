@@ -444,14 +444,88 @@ It is important to note for the next of that part that the RTS cannot really acc
 \paragraph{Find a good title here}
 
 What I want to do is twofold:
-- First, add a primitive to the RTS to allocate space into a compact region for a shallow constructor
-- Second, add a non-RTS primitive to reify the necessary information about a constructor into a runtime-value so that it can be communicated to the RTS (because the RTS cannot access that itself, as I explained above)
+\begin{itemize}
+\item First, add a primop to the RTS to allocate space into a compact region for a shallow constructor ;
+\item Second, add a non-RTS primop to reify the necessary information about a constructor into a runtime-value so that it can be communicated to the RTS (because the RTS cannot access that itself, as I explained above)
+\end{itemize}
 
-- Story about getting the info table ptr or a given constructor (blogpost)
+The first step mostly takes place in \mintinline{text}`rts/Compact.cmm`, the main C-- module of the RTS for compact regions management:
 
-- How to allocate a shallow constructor
+\begin{minted}{haskell}
+compactAddShallow# :: Compact# -> Addr# -> State# RealWorld -> (# State# RealWorld, Addr# #)
+\end{minted}
+\vspace{-0.6cm}
+\begin{minted}{c}
+stg_compactAddShallowzh(P_ compact, W_ info)
+{
+    W_ pp, ptrs, nptrs, size, tag, hp;
+    P_ to, p;
+    again: MAYBE_GC(again);
+    STK_CHK_GEN();
 
-- Note about how to emulate that with gShallowCtor and "raw memory" runtime reflection when not using a custom GHC version
+    pp = compact + SIZEOF_StgHeader + OFFSET_StgCompactNFData_result;
+    ptrs  = TO_W_(%INFO_PTRS(%STD_INFO(info)));
+    nptrs  = TO_W_(%INFO_NPTRS(%STD_INFO(info)));
+    size = BYTES_TO_WDS(SIZEOF_StgHeader) + ptrs + nptrs;
+    p = NULL;  // p isn't actually used by ALLOCATE macro
+
+    ALLOCATE(compact, size, p, to, tag);
+    P_[pp] = to;
+    SET_HDR(to, info, CCS_SYSTEM);
+#if defined(DEBUG)
+    ccall verifyCompact(compact);
+#endif
+    return (P_[pp]);
+}
+\end{minted}
+
+This function is mostly a glorified call to the \mintinline{haskell}`ALLOCATE` macro defined in the same file, which tries to do a pointer-bumping alloc in the current block of the compact region if there is enough space, and otherwise add a new block to the region.
+
+As we said earlier, \mintinline{haskell}`stg_compactAddShallowzh`/\mintinline{haskell}`compactAddShallow#` needs to access the info table pointer of the constructor we want to allocate, but cannot do so directly as the RTS cannot access STG labels. This is why the function must receive a \mintinline{haskell}`info` parameter of type \mintinline{haskell}`W_`/\mintinline{haskell}`Addr#` (the former is the C-- type; the latter is the Haskell one).
+
+Let's see how to reify the info table pointer of a constructor into a runtime value now. We want to add a new primitive operation in GHC that takes a compile-time-known string or constructor as input and compiles down to the label having that name or corresponding to the constructor's info table pointer.
+
+In Haskell, compile-time-known strings are represented by a type-level string literal of kind \mintinline{haskell}`Symbol`, and constructors can be lifted into type literals as well (with \mintinline{haskell}`LANGUAGE DataKinds` and prefixing the constructor with \mintinline{haskell}`'`, e.g. \mintinline{haskell}`'Just`). So the function we would like to build must have a type parameter somewhere, probably in one of its argument types, corresponding to that type-level literal input, like \mintinline{haskell}`reifyStgInfoPtr# :: Proxy# s -> Addr#` (where \mintinline{haskell}`s` would stand for the lifted constructor or symbol).
+
+The problem is, the compilation pipeline only start emitting labels at the \emph{STG to C--} phase. And at that point, almost all type information for polymorphic primops' parameters have been erased. Fortunately, for some technical reason, information about the actual return type of a primop is retained that late in the compilation process.
+
+Here's the trick I used so: I built a dedicated return type for \mintinline{haskell}`reifyStgInfoPtr#`, namely \mintinline{haskell}`InfoPtrPlaceholder# a`. That type has a phantom type parameter but shares the same memory representation as \mintinline{haskell}`Addr#`. That way, it is possible to use a type hint to provide the type-level literal to the primop: \mintinline{haskell}`reifyStgInfoPtr# (# #) :: InfoPtrPlaceholder# a` will allow the implementation of \mintinline{haskell}`reifyStgInfoPtr#` to read the type parameter \mintinline{haskell}`a` even though it is both phantom and in return position.
+
+Here's the implementation of the primop:
+
+\begin{minted}[escapeinside=°°,linenos]{haskell}
+case primop of
+  [...]
+  ReifyStgInfoPtrOp -> \_ ->  -- we don't care about the function argument (# #)
+    opIntoRegsTy $ \[res] resTy -> emitAssign (CmmLocal res) $ °\mnew{case resTy of}°
+      -- matches when 'a' is a Symbol, and extracts the symbol value as a FastString in 'sym'
+      TyConApp _addrLikeTyCon [_typeParamKind, °\mnew{LitTy (StrTyLit sym)}°] ->
+        CmmLit (CmmLabel (°\mnew{mkCmmInfoLabel rtsUnitId (fsLit "stg\_" `appendFS` sym}°)))
+      -- matches when 'a' is a lifted data constructor, and extracts it as a DataCon (from GHC.Core.DataCon)
+      TyConApp _addrLikeTyCon [_typeParamKind, °\mnew{TyConApp tyCon \_}°] °\mnew{| Just dataCon <- isPromotedDataCon_maybe tyCon}° -> do
+        CmmLit (CmmLabel (°\mnew{mkConInfoTableLabel (dataConName dataCon) DefinitionSite}°))
+      -- return garbage data when no pattern matches
+      _ -> [...]
+  [...]
+\end{minted}
+
+Going from the \mintinline{haskell}`InfoPtrPlaceholder# a` returned by \mintinline{haskell}`reifyStgInfoPtr#` to an actual \mintinline{haskell}`Addr#` is just a matter of calling the \mintinline{haskell}`unsafeCoerceAddr` function supplied by GHC, as both type are represented by pointers/addresses under the hood.
+
+With both primops in hand, we can allocate a shallow constructor closure directly in a compact region in an efficient fashion. For example, for \mintinline{haskell}`Just`, one should do:
+\begin{minted}{haskell}
+shallowJust :: Maybe a
+shallowJust = compactAddShallow#
+  compactRegion#
+  (unsafeCoerceAddr (reifyStgInfoPtr# (# #) :: InfoPtrPlaceholder# 'Just))  
+\end{minted}
+
+It would probably be possible to merge the two primops into a two-stage one (with both a compile-time and run-time action) without too much effort.
+
+\paragraph{Destination-style programming with stock GHC}
+
+During the early days of my research, I first experimented with shallow allocation without any modification to GHC codebase. Instead of using the primops I described above, I made heavy use of runtime heap inspection and `GHC.Generics' trickery to build shallow constructors with the correct info table pointers. As a result, it is still possible to use destinations-style programming without using a patched version of GHC, but performance gains are not guaranteed in that context.
+
+TODO: si temps restant, comparer les performances
 
 \section{Evaluating performance of destination-style programming}
 
