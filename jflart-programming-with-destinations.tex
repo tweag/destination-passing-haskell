@@ -89,14 +89,57 @@ Article à destination des experts haskell ? CamL?
 
 \subsection{(Perf) Efficient Difference-list implementation}
 
+In functional programming languages, the most used sequence type is the linked list, because its structure makes it very natural to process in a functional/recursive fashion. However, linked lists have rather poor performance for two common operations on sequences: indexing, and concatenation.
+
+To concatenate two linked list in an immutable setting, it is necessary to first copy every node of the first list, and just change the last \mintinline{haskell}`xn : []` \emph{cons} cell by \mintinline{haskell}`xn : ys` where \mintinline{haskell}`ys` stands for the second list. Hence a $\mathcal{O}(n_1)$ operation where $n_1$ stands for the length of the first list.
+
+As a result, the performance penalty incurred by linked list's concatenation can become substantial, especially when that operation is frequently used in a program. Instead, one might opt for an alternative sequence type, \emph{difference lists}, which are fast to convert into lists ($\mathcal{O}(1)$ TODO: really?) but are much more efficient for concatenation.
+
+A difference list is a linked list which isn't terminated by \emph{nil}. Instead, the second component of the last \emph{cons} cell is left pending. In Haskell, an incomplete structure cannot be built in memory strictly speaking, but instead we can represent a difference list \mintinline{haskell}`[x1, ..., xn, ?]` by a function taking a last element \mintinline{haskell}`ys` of type `[a]` and returning \mintinline{haskell}`x1 : ... : xn : ys` (having type \mintinline{haskell}`[a]` too).
+
+With such representation, concatenation is just function composition: \mintinline{haskell}`f1 <> f2 = f1 . f2`, and we have \mintinline{haskell}`mempty = id`, \mintinline{haskell}`toList f = f []` and \mintinline{haskell}`fromList xs = \ys → xs ++ xs`. This is exactly what is implemented in the difference list library for Haskell, that is especially useful for logging or string building programs (as they tend to be concatenation-heavy).
+
+With destinations in hand, we can now build actual incomplete structures in memory in a strict setting. A difference list can be seen as a pair of a list \mintinline{haskell}`[a]`, and a destination of a list \mintinline{haskell}`Dest [a]` (that will receive the last element of the list). The actual list \mintinline{haskell}`[a]` becomes readable as soon as the last element is written to it. In other terms, to free the list \mintinline{haskell}`[a]`, the accompanying destination must be linearly consumed. This constraint is embodied by the type \mintinline{haskell}`type DList a = Incomplete [a] (Dest [a])` which is at the core of our destination API.
+
+The other operations on difference lists follow easily:
+\begin{minted}[linenos]{haskell}
+type DList a = Incomplete [a] (Dest [a])
+
+new :: DList a
+new = alloc
+
+append :: DList a ⊸ a → DList a
+append i x =
+  i <&> \dl → case dl & fill @'(:) of
+    (dh, dt) → dh & fillLeaf x `lseq` dt
+
+concat :: DList a ⊸ DList a ⊸ DList a
+concat i1 i2 = i1 <&> \dl1 → dl1 & fillComp i2
+
+toList :: DList a ⊸ [a]
+toList i = extractFromReg $ i <&> \dl → dl & fill @'[]
+\end{minted}
+
+\begin{itemize}
+  \item \mintinline{haskell}`new` calls \mintinline{haskell}`alloc` which just returns a hollow \mintinline{haskell}`Incomplete [a] (Dest [a])` structure: there is no data there yet, so the list that will be fed in the \mintinline{haskell}`Dest [a]` is exactly the list in that the \mintinline{haskell}`Incomplete` will liberate.
+  \item \mintinline{haskell}`append` fills the destination (that stands for the hole at the end of the list) with a new \emph{cons} cell. The head of that cell \mintinline{haskell}`dh` is filled with the value to append, and the remaining hole (represented by `dt :: Dest [a]`) is the hole of the resulting difference list.
+  \item \mintinline{haskell}`concat` calls \mintinline{haskell}`fillComp`, which fills the destination of the first difference list with the root of the second one. The resulting \mintinline{haskell}`Incomplete` object hence has the same root as the first list, holds the elements of both lists, and has the hole of the second list.
+  \item \mintinline{haskell}`toList` completes the difference list by plugging \emph{nil} into its hole.
+\end{itemize}
+
+As it is shown with this example, thanks to destination-style programming, not only we can express programs and functions whose implementation is closer to their intended memory behaviour (here, implementing data structures with holes), but we can also get important performance improvements as a side benefit.
+
+[Insert benchmark here].
+
 \subsection{(Expressiveness) BFS Tree mapping/traversal}
 
-Traversing a binary tree in a breadth-first fashion with monadic effects is notoriously hard to implement in a pure functional fashion. Indeed, when a node in the resulting tree is produced, we cannot build its children immediately because the effects of the children node creation would break the BFS order. Instead, we must store the path to that node in a queue, and come back much later to add its children, so that BFS effect order is preserved.
+Traversing a binary tree in a breadth-first fashion with effects is notoriously hard to implement efficiently in a pure functional fashion.
 
-With destinations in our toolbelt, the problem is much simpler, as we can just let that node be "incomplete" for the time being, store the destinations for its children in a queue, and fill them later when they reach the head of the queue. There is no need to store the path up to that node in a fancy fashion, and no need to build many temporary functional structures in memory either. In a way, destinations provide a single-use \emph{action-at-a-distance} concept.
+Indeed, the order in which effects should be sequenced is completely different than the natural order of traversal of the tree. As a result, many tricks should be employed to reconciliate those two realities. Even the most elegant solutions such as [introduce ref to the now/later applicative implementation] often involve several traversals of the tree, or the construction of additional cost-heavy structures. 
 
-TODO: parler d'Ur dans les types linéaires
-TODO: parler d'alloc brièvement; buildInRegionAndExtract
+With destinations in our toolbelt, we can implement a solution that is both easy to write and efficient, doing only a single traversal pass on the original tree.
+
+The main idea is to keep a queue of pairs, whose first element is the next node to process, and the second is a destination in the output tree where to write the result of processing that node. Thanks to destination, it is possible to let some parts of the tree "unfinished" for some time, and to come back at them later when it's their turn to be processed. That way, effects can be applied in a BFS order and the tree can be built in one pass. In a way, destinations provide a one-use \emph{action-at-a-distance} concept in this use-case.
 
 \begin{minted}[linenos]{haskell}
 data Tree a = Nil | Node a (Tree a) (Tree a)
@@ -119,21 +162,22 @@ mapStateBFS f s0 tree =
               in dr & fillLeaf r `lseq` go s' q''
 \end{minted}
 
+The signature of `mapStateBFS' doesn't involve linear types. They are only put into use in the implementation of the said function, as a way to ensure memory safety when using destinations.
+Because the state-transforming function `(s → a → (s, b))' is non-linear, leaves of the original tree aren't consumed in a linear fashion. However, the queue in which nodes and destinations are stored must be linearly consumed: it's only when all destinations (and by extension, their container, i.e. the queue in this context) have been linearly consumed that the built structure will be "released" and will be readable.
+
+As a result, nodes of the tree stored in the queue must be wrapped in `Ur', to indicate that the queue can still be linearly consumed even though the tree nodes are consumed in a non-linear fashion. On the other hand, the destinations cannot be wrapped in `Ur', and as a result their linear consumption is necessary for the queue to be considered as linearly consumed.
+
+The first two lines of the function are just implementation noise to obtain a destination of a tree `dtree'. Then the `go' helper function is called on the initial state with a single-element queue containing the root of tree, and the allocated destination for the resulting tree.
+
+With this example, we show how destinations can be used in a non-linear setting to improve the expressiveness of the base language. That being said, they also tend to improve performance as a side benefit, compared to other elegant functional implementations: [INSERT HERE BENCHMARK RESULT].
+
+TODO: dire que c'est le vrai improvement par rapport à Minamide!
+
 \subsection{(Perf) Deserializing from a structured format (S-Expr)}
 
 Derserialization is a very common task in application development, and can become a crucial part of the program performance-wise, when the program in question is meant to be fed with large chunks of serialized data.
 
-Most of the time, the result of deserialization will be a data tree, with hundred of nodes and leaves, whose consumption by the processing program will be strict because:
-\begin{itemize}
-  \item the programmer wants to catch any potential error in the input document early enough in the process;
-  \item most of the input will be read to produce the output anyway.
-\end{itemize}
-
-Also, it's uncommon for a part of the input (in its parsed but unprocessed form) to greatly outlive the rest of it. As a result, treating the deserialized data as a large object with a unique lifetime for all its parts is a decent  approximation when that allows easier memory management, as we will show in a next section.
-
-The current implementation of destination-style programming for Haskell is based on Compact Regions, which bring to the table the two aforementioned properties: strictness, and a shared lifetime for a tree of objects (which may keep some nodes in memory for slightly longer than necessary), in exchange of impressive garbage collection savings!
-
-Let's focus on a deserializer for S-expressions. S-expresssions are parenthesized lists whose elements are just seperated by spaces. These elements can be of several types: Int, String, Symbol (a textual token, with no quotes around it, unlike String), or (nested) list.
+Let's focus on a deserializer for S-expressions. S-expresssions are parenthesized lists whose elements are just seperated by spaces. These elements can be of several types: int, string, symbol (a textual token, with no quotes around it, unlike a string), or a list of other S-expressions.
 
 Parsing a S-expression can be done concisely with three mutually recursive functions:
 \begin{itemize}
@@ -179,15 +223,27 @@ parseSString bs i escape acc = case bs !? i of
     _ → parseSString bs (i + 1) False (c : acc)
 \end{minted}
 
-TODO: préciser slicing?
-
 Now, this implementation is already quite efficient for a strict setting. The functions are as tail-recursive as they can be, and they use indexing and slicing into a bytestring ($\mathcal{O}(1)$ operation) instead of potentially allocating a huge number of strings on the heap.
 
 That being said, it is possible to obtain very significative performance gains by using destinations with only very little stylistic changes in the code.
 
 Accumulators of tail-recursive functions just have to be changed into destinations. Instead of writing elements into a list that will be reversed at the end as we did before, the program in the destination style will directly write the elements into their final location.
 
+The current implementation of destination-style programming for Haskell is based on Compact Regions, which have two strong properties that clash with usual Haskell ones. First, strictness is mandatory, and any object written in a compact region will be forced into its normal form. Secondly, all objects from a same region will share the same lifetime. Those properties must be dealbreaker for some use cases, but for a parser, they very advantageous!
+
+Indeed, in a program that consumes raw data and parses it (and for which performance does matter), it's uncommon for a part of the input, in its parsed but unprocessed form, to greatly outlive the rest of it. As a result, treating the deserialized data as a large object with a unique lifetime for all its parts is a decent approximation that then allows easier memory management, and as a result impressive garbage collection gains!
+
+As for strictness, most of the time, the result of deserialization will be a data tree, with hundred of nodes and leaves, whose consumption by the processing program will be strict because:
+\begin{itemize}
+  \item the programmer wants to catch any potential error in the input document early enough in the process;
+  \item most of the input will be read to produce the output anyway.
+\end{itemize}
+
+All things considered, the properties imposed by the use of destinations seem very compatible with a parsing use-case.
+
 It is good to note that destination allow to reverse the natural order in which a structure is built. For a list, the natural operation in functional programming languages is \emph{prepend}/\emph{cons}, which adds an element at the front of an existing list (bottom-up approach). Thanks to destinations, it's possible to build a list starting from an element which will stay at the head of the it, and new elements will be added towards the tail of the list (\emph{append}/\emph{fillCons}). It's entirely possible to mix both approaches too, as it will be detailed in the API section.
+
+Let's focus on the implementation using destinations:
 
 \newcommand{\mnew}[1]{\colorbox{green}{#1}}
 \newcommand{\mold}[1]{\colorbox{red}{\sout{#1}}}
@@ -249,9 +305,7 @@ parseSStringDS bs i escape d = case bs !? i of
   \item Instead of reversing and returning the accumulator at the end of the processing, it is enough to complete the list by writing a nil element to the tail destination (with \mintinline{haskell}`fill @'[]`) (see lines 26 and 38).
 \end{itemize}
 
-- More efficient GC-wise (see -T benchmark)
-
-- More efficient runtime-wise
+Thanks to that new implementation, the program runs almost twice as fast as the previous one, mostly because garbage-collection time goes to almost zero. The detailed benchmark is available in section [INSERT SECTION].
 
 \section{Technical development}
 
