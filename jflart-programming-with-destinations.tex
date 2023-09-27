@@ -71,16 +71,16 @@ Using destinations as a way of allocating and building functional data structure
 
 \subsection{Framework}
 
-- GHC where purity is enforced
+\begin{itemize}
 
-- Also because it has good support for linear type discipline
+\item GHC where purity is enforced
+\item Also because it has good support for linear type discipline
+\item Linear types
+\item Destinations
+\item Compact regions
+\item strict lazy haskell
 
-TODO: rappel théorique
-
-- Linear types
-- Destinations
-- Compact regions
-- strict lazy haskell
+\end{itemize}
 
 (préliminaire car ça existe déjà)
 
@@ -103,7 +103,7 @@ With such representation, concatenation is just function composition: \mintinlin
 With destinations in hand, we can now build actual incomplete structures in memory in a strict setting. A difference list can be seen as a pair of a list \mintinline{haskell}`[a]`, and a destination of a list \mintinline{haskell}`Dest [a]` (that will receive the last element of the list). The actual list \mintinline{haskell}`[a]` becomes readable as soon as the last element is written to it. In other terms, to free the list \mintinline{haskell}`[a]`, the accompanying destination must be linearly consumed. This constraint is embodied by the type \mintinline{haskell}`type DList a = Incomplete [a] (Dest [a])` which is at the core of our destination API.
 
 The other operations on difference lists follow easily, as we can observe on table~\ref{table:impl-dlist}:
-\begin{table}[th]
+\begin{table}[t]
 \small
 \begin{minted}[frame=single,framesep=10pt,linenos]{haskell}
 type DList a = Incomplete [a] (Dest [a])
@@ -147,7 +147,7 @@ With destinations in our toolbelt, we can implement a solution that is both easy
 
 The main idea is to keep a queue of pairs, whose first element is the next node to process, and the second is a destination in the output tree where to write the result of processing that node. Thanks to destination, it is possible to let some parts of the tree "unfinished" for some time, and to come back at them later when it's their turn to be processed. That way, effects can be applied in a BFS order and the tree can be built in one pass. In a way, destinations provide a one-use \emph{action-at-a-distance} concept in this use-case.
 
-\begin{table}[th]
+\begin{table}[t]
 \small
 \begin{minted}[frame=single,framesep=10pt,linenos]{haskell}
 data Tree a = Nil | Node a (Tree a) (Tree a)
@@ -197,7 +197,7 @@ Parsing a S-expression can be done concisely with three mutually recursive funct
   \item \mintinline{haskell}`parseSString` scans the input character by character and accumulates them until reaching a closing quote (taking escape sequences into consideration).
 \end{itemize}
 
-\begin{table}[th]
+\begin{table}[t]
 \small
 \begin{minted}[frame=single,framesep=10pt,linenos]{haskell}
 parseSExpr :: ByteString → Int → Either ParseError SExpr
@@ -264,7 +264,7 @@ Let's focus on the implementation using destinations, which is presented in tabl
 \newcommand{\mnew}[1]{\colorbox{green}{#1}}
 \newcommand{\mold}[1]{\colorbox{red}{\sout{#1}}}
 
-\begin{table}[th]
+\begin{table}[H]
 \small
 \begin{minted}[frame=single,framesep=10pt,linenos,escapeinside=°°]{haskell}
 parseSExprDS :: ByteString → Int → Dest SExpr ⊸ Either ParseError Int
@@ -374,7 +374,7 @@ withResource (\r → r & move) :: Ur Resource
 \end{minted}
 }
 
-\begin{table}[th]
+\begin{table}[t]
 \small
 \begin{minted}[frame=single,framesep=10pt]{haskell}
 data RegionToken r
@@ -502,7 +502,7 @@ In the \mintinline{haskell}`DestsOf` type family and in in the different \mintin
 For example, the \mintinline{haskell}`Generic representation` of \mintinline{haskell}`Maybe a` gives
 
 {\small
-\begin{minted}[escapeinside=°°,linenos]{haskell}
+\begin{minted}[escapeinside=°°]{haskell}
 M1 D (MetaData "Maybe" "GHC.Maybe" "base" False) (
   M1 C (MetaCons "Nothing" PrefixI False) U1
   :+: M1 C (MetaCons "Just" PrefixI False) (M1 S [...] (K1 R a)))
@@ -515,7 +515,7 @@ indicating that there is zero fields with constructor \mintinline{haskell}`Nothi
 The representation for \mintinline{haskell}`(a, b)` gives
 
 {\small
-\begin{minted}[escapeinside=°°,linenos]{haskell}
+\begin{minted}[escapeinside=°°]{haskell}
   M1 D (MetaData "Tuple2" "GHC.Tuple.Prim" "ghc-prim" False) (
     (M1 C (MetaCons "(,)" PrefixI False) (
       M1 S [...] (K1 R a)
@@ -553,9 +553,13 @@ Other specific info tables are also being shared in the STG: the ones for "black
 
 All that sharing is made through the use of labels:
 
-- when the declaration of a data constructor is encountered (definition site), the corresponding info table is emitted to the static area of the output program, and its address is associated with the label \mintinline{haskell}`<constructor name>_con_info`
-- when the use of a data constructor is encountered, the label \mintinline{haskell}`<constructor name>_con_info` is used in place of an actual address in the closure that is emitted
-- later on in the compilation process, those labels will be converted by the linker into actual addresses
+\begin{itemize}
+
+\item when the declaration of a data constructor is encountered (definition site), the corresponding info table is emitted to the static area of the output program, and its address is associated with the label \mintinline{haskell}`<constructor name>_con_info`
+\item when the use of a data constructor is encountered, the label \mintinline{haskell}`<constructor name>_con_info` is used in place of an actual address in the closure that is emitted
+\item later on in the compilation process, those labels will be converted by the linker into actual addresses
+
+\end{itemize}
 
 Now, the runtime behaviour of a Haskell program is directed by the \emph{run-time system}, or RTS, which is a software component written in a mix of C and C-- (the last language in the compilation pipeline of Haskell for a native build). The RTS is built once for all when GHC itself is being built, and it is then included in every executable produced by GHC.
 
@@ -575,7 +579,7 @@ What I want to do is twofold:
 
 The first step mostly takes place in \mintinline{text}`rts/Compact.cmm`, the main C-- module of the RTS for compact regions management, as presented in table~\ref{table:impl-compactAddShallow}.
 
-\begin{table}[th]
+\begin{table}[H]
 \small
 \begin{minted}[frame=single,framesep=10pt]{c}
 // compactAddShallow# :: Compact# → Addr# → State# RealWorld → (# State# RealWorld, a #)
@@ -619,7 +623,7 @@ Here's the trick I used so: I built a dedicated return type for \mintinline{hask
 
 The gist of this implementation is presented in table~\ref{table:impl-reifyStgInfoPtr}, which we will now comment a bit.
 
-\begin{table}[th]
+\begin{table}[H]
 \small
 \begin{minted}[frame=single,framesep=10pt,linenos]{haskell}
 case primop of
@@ -628,9 +632,9 @@ case primop of
     opIntoRegsTy $ \[res] resTy → emitAssign (CmmLocal res) $ case resTy of
       -- matches when 'a' is a Symbol, and extracts the symbol value as a FastString in 'sym'
       TyConApp _addrLikeTyCon [_typeParamKind, LitTy (StrTyLit sym)] →
-        CmmLit (CmmLabel (mkCmmInfoLabel rtsUnitId (fsLit "stg\_" `appendFS` sym)))
+        CmmLit (CmmLabel (mkCmmInfoLabel rtsUnitId (fsLit "stg_" `appendFS` sym)))
       -- matches when 'a' is a lifted data constructor, and extracts it as a DataCon (from GHC.Core.DataCon)
-      TyConApp _addrLikeTyCon [_typeParamKind, TyConApp tyCon \_] | Just dataCon <- isPromotedDataCon_maybe tyCon → do
+      TyConApp _addrLikeTyCon [_typeParamKind, TyConApp tyCon _] | Just dataCon <- isPromotedDataCon_maybe tyCon → do
         CmmLit (CmmLabel (mkConInfoTableLabel (dataConName dataCon) DefinitionSite))
       -- return garbage data when no pattern matches
       _ → [...]
@@ -679,13 +683,17 @@ The second way to force a lazy structure into normal form is to copy it into a c
 
 To my knowledge, there is no better way than these two to mesure the time taken by a strict program and by a lazy program, in an accurate and fair way.
 
-- Three modes (-T, -s, -p)
 
-- How to evaluate naive code (why we use both copyIntoRegion and force)
+\begin{itemize}
+\item Three modes (-T, -s, -p)
+\item How to evaluate naive code (why we use both copyIntoRegion and force)
+\end{itemize}
 
 \subsection{Performance of map implementation (in a strict context)}
 
-- How this is important for Ocaml
+\begin{itemize}
+\item How this is important for Ocaml
+\end{itemize}
 
 \subsection{Performance of the SExpr parser}
 
@@ -693,15 +701,18 @@ To my knowledge, there is no better way than these two to mesure the time taken 
 
 \subsection{Qualitative evaluation of destination code VS naive code}
 
-- TODO: implement a naive implement of functional mapMBFS
+\begin{itemize}
+\item TODO: implement a naive implement of functional mapMBFS
+\item \end{itemize}
 
 \section{Conclusion and related work}
+\begin{itemize}
+\item Why it's an improvement over Minamide
 
-- Why it's an improvement over Minamide
+\item Lifting the non-linear restriction for elements stored in dest-allocated structures (= requires more theoretical work)
 
-- Lifting the non-linear restriction for elements stored in dest-allocated structures (= requires more theoretical work)
-
-- Using destinations in different contexts than compact regions (normal GC heap, other kinds of chunk-allocated memory)
+\item Using destinations in different contexts than compact regions (normal GC heap, other kinds of chunk-allocated memory)
+\end{itemize}
 
 \printbibliography
 
