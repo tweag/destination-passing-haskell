@@ -123,7 +123,7 @@ toList i = extractFromReg $ i <&> \dl → dl & fill @'[]
 \begin{itemize}
   \item \mintinline{haskell}`new` calls \mintinline{haskell}`alloc` which just returns a hollow \mintinline{haskell}`Incomplete [a] (Dest [a])` structure: there is no data there yet, so the list that will be fed in the \mintinline{haskell}`Dest [a]` is exactly the list in that the \mintinline{haskell}`Incomplete` will liberate.
   \item \mintinline{haskell}`append` fills the destination (that stands for the hole at the end of the list) with a new \emph{cons} cell. The head of that cell \mintinline{haskell}`dh` is filled with the value to append, and the remaining hole (represented by `dt :: Dest [a]`) is the hole of the resulting difference list.
-  \item \mintinline{haskell}`concat` calls \mintinline{haskell}`fillComp`, which fills the destination of the first difference list with the root of the second one. The resulting \mintinline{haskell}`Incomplete` object hence has the same root as the first list, holds the elements of both lists, and has the hole of the second list.
+  \item \mintinline{haskell}`concat` calls \mintinline{haskell}`fillComp`, which fills the destination of the first difference list with the root of the second one. The resulting \mintinline{haskell}`Incomplete` object hence has the same root as the first list, holds the elements of both lists, and has the hole of the second list at the end. Memory-wise, `concat' will just write the address of the root of the second list into the hole of the first one ; no move is required.
   \item \mintinline{haskell}`toList` completes the difference list by plugging \emph{nil} into its hole.
 \end{itemize}
 
@@ -171,7 +171,7 @@ The first two lines of the function are just implementation noise to obtain a de
 
 With this example, we show how destinations can be used in a non-linear setting to improve the expressiveness of the base language. That being said, they also tend to improve performance as a side benefit, compared to other elegant functional implementations: [INSERT HERE BENCHMARK RESULT].
 
-TODO: dire que c'est le vrai improvement par rapport à Minamide!
+Being able not only to represent data structures with holes, but also manipulate references to these holes as first-class objects of the language while preserving memory safety, is the major step forward that this paper presents. Earlier work from Minamide presented a memory-safe functional language supporting data structures with (just) a hole. It would have been possible to extend that preliminary work to support multiple holes rather easily, but being able to reference these holes without having the associated incomplete structure at hand is where the real deal is.
 
 \subsection{(Perf) Deserializing from a structured format (S-Expr)}
 
@@ -584,6 +584,21 @@ TODO: si temps restant, comparer les performances
 \section{Evaluating performance of destination-style programming}
 
 \subsection{Benchmarking / profiling strategy}
+
+Benchmarking code using destination hasn't been easy.
+
+First, the current implementation of destinations for Haskell uses compact regions, which force strictness "for free", whereas regular Haskell code is lazy by default; and thus the produced data structures need to be explicitly forced into normal form.
+
+There are two main ways to force a structure into normal form. The first one is to use the tools supplied by the `deepseq` package. That packages defines a typeclass, `NFData', which can be easily derived for user-defined datatypes, which in turn gives access to functions like `force' or `rnf' that will force every thunk (pending lazy computation) from a value/structure. Using `deepseq' to benchmark the naive implementation (the one without destinations) has the advantage of not making unnecessary allocations, so the reported memory usage is accurate, but the \emph{forcing} operation might incur extra CPU usage and thus slow the program down, because forcing thunk artificially with `force' or `rnf' is not as efficient as if they were forced in an organic way by the RTS during the program execution.
+
+The second way to force a lazy structure into normal form is to copy it into a compact region. Indeed, the `compact'/`compactAdd' functions from `GHC.Compact' will efficiently force every thunk of a structure before writing their final value into the region. Most of the time, using `compact' is faster than using `force', as the  \emph{forcing} code is written in C/C-- instead of Haskell, but it creates two issues:
+
+\begin{itemize}
+  \item the space allocated in the region for the result is counted towards the total memory allocated by the program. However, compact regions aren't suited for all use-cases. For some of them, the GC gains they would offer wouldn't balance for the extra time during which some garbage will continue to live in memory. As a result, it seems unfair to count the extra memory usage in the region incurred by `compact' for programs which wouldn't make use of compact regions in normal time (as the result structure is already present in the normal GC heap) ;
+  \item `compact' not only forces all thunks, but also copies their final value into the region. The time required to make the copy, despite being small, is still counted towards the total execution time of the program.
+\end{itemize}
+
+To my knowledge, there is no better way than these two to mesure the time taken by a strict program and by a lazy program, in an accurate and fair way.
 
 - Three modes (-T, -s, -p)
 
