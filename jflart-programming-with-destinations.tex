@@ -7,6 +7,7 @@
 \usepackage{float}
 \usepackage[normalem]{ulem}
 \usepackage[backend=biber, style=alphabetic]{biblatex}
+\usepackage{newunicodechar}
 \addbibresource{bibliography.bib}
 
 % Numéro et année des JFLAs visées par l'article, obligatoire.
@@ -32,11 +33,12 @@
 \newcommand{\mpar}{\text{\,\textramshorns\,}}
 \newcommand{\dest}{-\prec}
 \newcommand{\TODO}[1]{{\color{red}\large #1}}
-\usepackage{newunicodechar}
+\newcommand{\mnew}[1]{\colorbox{green}{#1}}
+\newcommand{\mold}[1]{\colorbox{red}{\sout{#1}}}
 \newunicodechar{⊸}{\ensuremath{\multimap}}
 \newunicodechar{→}{\ensuremath{\to}}
 \newunicodechar{⇒}{\ensuremath{\Rightarrow}}
-\newunicodechar{;}{\textbf{\large ;}}
+\newunicodechar{;}{\textbf{\large;}}
 \newunicodechar{∀}{\ensuremath{\forall}}
 \makeatletter
 \AtBeginEnvironment{minted}{\dontdofcolorbox}
@@ -63,30 +65,19 @@ Safety proofs for the API are not provided in this article though, and will be t
 
 \section{Introduction}
 
-TODO: conceptuellement simple, mais beaucoup d'obstacles techniques pour rendre ça possible.
-
- Destinations bring a taste of imperative programming in a pure functional environnement when performance really matters, without breaking memory safety.
+Destinations bring a taste of imperative programming in a pure functional environnement when performance really matters, without breaking memory safety.
 
 Using destinations as a way of allocating and building functional data structures can lead to better time and/or space performance for critical parts of a program, but destinations also increase expressiveness of a functional language.
 
-\subsection{Problem space and motivation}
+\TODO{Write introduction}
 
-\subsection{Framework}
-
-\begin{itemize}
-
-\item GHC where purity is enforced
-\item Also because it has good support for linear type discipline
-\item Linear types
-\item Destinations
-\item Compact regions
-\item strict lazy haskell
-
-\end{itemize}
-
-(préliminaire car ça existe déjà)
-
-Article à destination des experts haskell ? CamL?
+%TODO: conceptuellement simple, mais beaucoup d'obstacles techniques pour rendre ça possible.
+% TODO GHC where purity is enforced
+% TODO Also because it has good support for linear type discipline
+% TODO Linear types
+% TODO Destinations
+% TODO Compact regions
+% TODO strict lazy haskell
 
 \section{Motivating examples for destination-passing style programming}
 
@@ -106,9 +97,9 @@ This isn't possible to do in an immutable functional context though. Instead, \e
 
 With such representation, concatenation is just function composition: \mintinline{haskell}`f1 <> f2 = f1 . f2`, and we have \mintinline{haskell}`mempty = id`\footnote{\mintinline{haskell}`mempty` and \mintinline{haskell}`<>` are the standard notations for the neutral element and internal operation of a monoid in Haskell}, \mintinline{haskell}`toList f = f []` and \mintinline{haskell}`fromList xs = \ys → xs ++ xs`.
 
-In DPS, instead of encoding the concept of a write-once hole with a function, we can represent it as a first-class object with a \emph{destination}. A difference list now become a first class data structure in memory, albeit incomplete, with two handles: one to the root of the list of type \mintinline{haskell}`[a]`, and one to the yet-to-be-filled hole in the last cons cell, represented by a destination of type \mintinline{haskell}`Dest [a]`.
+In DPS, instead of encoding the concept of a write-once hole with a function, we can represent the hole as a first-class object with a \emph{destination}. A difference list now become an actual data structure in memory --- not just a pending computation --- that has two handles: one to the root of the list of type \mintinline{haskell}`[a]`, and one to the yet-to-be-filled hole in the last cons cell, represented by a destination of type \mintinline{haskell}`Dest [a]`.
 
-With the function encoding, it isn't possible to read the list until a last element of type \mintinline{haskell}`[a]` have been supplied to complete it. With the destination representation, this constraint persists: the actual list \mintinline{haskell}`[a]` isn't readable until the accompanying destination is filled (or \emph{linearly consumed}, as we sometimes write). This constraint is embodied by the \mintinline{haskell}`Incomplete a b` type of our destination API: \mintinline{haskell}`b` is what needs to be linearly consumed to make the \mintinline{haskell}`a` readable. A difference list is then \mintinline{haskell}`type DList a = Incomplete [a] (Dest [a])`: one should fill the \mintinline{haskell}`Dest [a]` (with a \mintinline{haskell}`[a]`) to get a readable \mintinline{haskell}`[a]`.
+With the function encoding, it isn't possible to read the list until a last element of type \mintinline{haskell}`[a]` have been supplied to complete it. With the destination representation, this constraint must persists: the actual list \mintinline{haskell}`[a]` shouldn't be readable until the accompanying destination is filled (or \emph{linearly consumed}, as we sometimes write), otherwise memory safety wouldn't be respected. This constraint is embodied by the \mintinline{haskell}`Incomplete a b` type of our destination API: \mintinline{haskell}`b` is what needs to be linearly consumed to make the \mintinline{haskell}`a` readable. Most of the time, the \mintinline{haskell}`b` side carries the destinations of the structure. A difference list is then \mintinline{haskell}`type DList a = Incomplete [a] (Dest [a])`: one should fill the \mintinline{haskell}`Dest [a]` (with a \mintinline{haskell}`[a]`) to get a readable \mintinline{haskell}`[a]`.
 
 The implementation of operations on destination-backed difference lists are presented in table~\ref{table:impl-dlist}.
 \begin{table}[t]
@@ -138,15 +129,15 @@ toList i = fromIncomplete_' (i <&> \dl → fill @'[] dl)
 \end{table}
 
 \begin{itemize}
-  \item \mintinline{haskell}`alloc` returns a \mintinline{haskell}`DList a` which is exactly an \mintinline{haskell}`Incomplete [a] (Dest [a])` structure. There is no data there yet; so the list that will be fed in the \mintinline{haskell}`Dest [a]` is exactly the list in that the \mintinline{haskell}`Incomplete` will hold. This is highly similar to the \mintinline{haskell}`id` function which represents the empty destination list in the function encoding.
-  \item \mintinline{haskell}`append` fills the the hole at the end of the list \mintinline{haskell}`dl` with a new \emph{cons} cell, using \mintinline{haskell}`fill @'(:)`. The head of that cell \mintinline{haskell}`dh` is filled with the value to append using \mintinline{haskell}`fillLeaf`, and the remaining hole of the new \emph{cons} cell, represented by \mintinline{haskell}`dt :: Dest [a]`, is the hole of the resulting difference list.
-  \item \mintinline{haskell}`concat` calls \mintinline{haskell}`fillComp`, which fills the destination of the first difference list \mintinline{haskell}`i1` with the root of the second list. The resulting \mintinline{haskell}`Incomplete` object hence has the same root as the first list, holds the elements of both lists, and has the hole of the second list at the end. Memory-wise, \mintinline{haskell}`concat` will just write the address of the root of the second list into the hole of the first one ; no move is required.
+  \item \mintinline{haskell}`alloc` returns a \mintinline{haskell}`DList a` which is exactly an \mintinline{haskell}`Incomplete [a] (Dest [a])` structure. There is no data there yet; so the list that will be fed in the \mintinline{haskell}`Dest [a]` is exactly the list in that the \mintinline{haskell}`Incomplete` will hold. This is highly similar to the \mintinline{haskell}`id` function which represents the empty destination list in the function encoding;
+  \item \mintinline{haskell}`append` fills the the hole at the end of the list \mintinline{haskell}`dl` with a new \emph{cons} cell, using \mintinline{haskell}`fill @'(:)`. The head of that cell \mintinline{haskell}`dh` is filled with the value to append using \mintinline{haskell}`fillLeaf`, and the remaining hole of the new \emph{cons} cell, represented by \mintinline{haskell}`dt :: Dest [a]`, is the hole of the resulting difference list;
+  \item \mintinline{haskell}`concat` calls \mintinline{haskell}`fillComp`, which fills the destination of the first difference list \mintinline{haskell}`i1` with the root of the second difference list\mintinline{haskell}`i2`. The resulting \mintinline{haskell}`Incomplete` object hence has the same root as the first list, holds the elements of both lists, and has the hole of the second list at the end. Memory-wise, \mintinline{haskell}`concat` will just write the address of the root of the second list into the hole of the first one; no move is required.
   \item \mintinline{haskell}`toList` completes the incomplete structure by plugging \emph{nil} into its hole with \mintinline{haskell}`fill @'[]`.
 \end{itemize}
 
 This simplified API for difference lists still lacks some linearity requirements to make it write-once/immutable. In particular, the result of \mintinline{haskell}`alloc` should be used linearly but this isn't enforced by this API, and as a result, one could fill the embedded destination twice. Linearity concerns will be addressed in section~\ref{sec:api} .
 
-That being said, thanks to destination-style programming, not only we can express programs and functions whose implementation is closer to their intended memory behaviour (here, implementing data structures with holes), but we can also get important performance improvements as a side benefit. \TODO{one sentence about the benchmark results compared to the function encoding}
+That being said, thanks to destination-style programming, not only we can express programs and functions whose implementation is closer to their intended memory behaviour (here, implementing data structures with holes), but we can also get important performance improvements too. \TODO{one sentence about the benchmark results compared to the function encoding}
 
 \subsection{Breadth-first tree traversal}
 
@@ -158,7 +149,7 @@ The fact that destinations can be stored in arbitrary data structures opens the 
 
 In breadth-first tree traversal (with effects), the order in which effects should be sequenced is completely different than the natural order of traversal of the tree. As a result, many tricks should be employed to reconciliate those two realities. Even the most elegant solutions such as \cite{gibbons_phases_2023} often involve several traversals of the tree, or the construction of additional cost-heavy structures.
 
-With storable destinations in our toolbelt, we can implement a solution that is both easy to write and efficient, doing only a single traversal pass on the original tree. The main idea is to keep a queue of pairs, whose first component is the next node from the input tree to process, and the second is a destination referring to the location in the output tree where to write the result of processing that node. Thanks to destination, it is possible to let some parts of the tree "unfinished" for some time, and to come back at them later when it's their turn to be processed. And storing destinations in a queue allows the effects to be applied in a breadth-first order so that the tree can be built in one pass. The implementation is provided in table~\ref{table:impl-bfs-tree-traversal}.
+With storable destinations in our toolbelt, we can implement a solution that is both easy to write and efficient, doing only a single traversal pass on the original tree. The main idea is to keep a queue of pairs, whose first component is the next node from the input tree to process, and the second is a destination referring to the location in the output tree where to write the result of processing that node. Functional structures with holes make it possible to let some parts of the tree "unfinished" for some time, and to come back at them later when it's their turn to be processed. And storing destinations which refer to these holes in a queue allows the effects to be applied in a breadth-first order so that the tree can be built in one pass. The implementation is provided in table~\ref{table:impl-bfs-tree-traversal}.
 
 \begin{table}[t]
 \small
@@ -185,7 +176,7 @@ mapAccumBFS f s0 tree =
 \label{table:impl-bfs-tree-traversal}
 \end{table}
 
-The signature of \mintinline{haskell}`mapAccumBFS` doesn't involve linear types. They are only put into use in the implementation of the \mintinline{haskell}`go` sub-function, as a way to ensure memory safety when using destinations. When \mintinline{haskell}`go` is first called, its argument are the initial state \mintinline{haskell}`s0` and a single-element queue containing a pair of the root of the input tree and a destination for the root of the output tree. Then, during the recursive calls to \mintinline{haskell}`go`, the queue is updated, and linearity enforces the fact that every destination ever put in the queue is eventually filled at some point, which guarantees that the output tree is complete after the function has run, and thus can be made readable.
+One can note that the signature of \mintinline{haskell}`mapAccumBFS` doesn't involve linear types. They are only put into use in the implementation of the \mintinline{haskell}`go` sub-function, as a way to ensure memory safety when using destinations. When \mintinline{haskell}`go` is first called, its argument are the initial state \mintinline{haskell}`s0` and a single-element queue containing a pair of the root of the input tree and a destination for the root of the output tree. Then, during the recursive calls to \mintinline{haskell}`go`, the queue is updated, and linearity enforces the fact that every destination ever put in the queue is eventually filled at some point, which guarantees that the output tree is complete after the function has run, and thus can be made readable.
 
 Because the state-transforming function \mintinline{haskell}`s → a → (s, b)` is non-linear, the leaves of the original tree (that are stored together with destinations in the queue) won't be consumed in a linear fashion. However, as we said, destinations must be all consumed linearly, and for that to hold, their container must be consumed linearly too. So we need a trick to indicate that one sub-part of the queue is allowed to be consumed non-linearly while the rest of the structure will appeared to be consumed linearly.
 
@@ -193,11 +184,21 @@ This is exactly the role that the \mintinline{haskell}`Ur` wrapper plays. A \min
 
 With this example, we show how destinations can be used even in a non-linear setting in order to improve the expressiveness of the base language. This more natural and less convoluted implementation of breadth-first traversal also presents great performance gains compared to other functional implementations. \TODO{Insert benchmark}
 
-\subsection{(Perf) Deserializing from a structured format (S-Expr)}
+\subsection{Deserializing a large data tree: impact on garbage collection}
 
-Derserialization is a very common task in application development, and can become a crucial part of the program performance-wise, when the program in question is meant to be fed with large chunks of serialized data.
+Deserialization is a very common task in application development, and can become a crucial part of the program performance-wise, when the program in question is meant to be fed with large chunks of serialized data.
 
-Let's focus on a deserializer for S-expressions. S-expresssions are parenthesized lists whose elements are just seperated by spaces. These elements can be of several types: int, string, symbol (a textual token, with no quotes around it, unlike a string), or a list of other S-expressions.
+More importantly, when a large file is deserialized into a tree of heap objects in a garbage-collected language, the presence of the tree in the heap will dramatically increase the time taken by each garbage collection cycle, as the garbage collector (GC) will have to go through every path in the tree to check whether or not each node is alive. However, it is very common for the all the tree's nodes to stay alive for almost the same duration, and to become unused by the program roughly at the same time. Hence, the high frequency at which the GC runs is quite unadapted for that use case, and the program's performance will be hampered.
+
+As a result, it can be highly desirable to consider the large data tree as a single heap object with a single lifetime for all its nodes. If the tree is stored in a delimited memory area (with a start address and end address known by the GC), it becomes easy for the GC to check whether there is an object that reference a part of the tree just by checking the boundaries of the area in which the tree lives. Then the tree can be discarded when there is no reference pointing to its associated memory area. Using this technique, that has first been implemented for haskell in~\cite{yang_efficient_2015} under the name of \emph{compact regions}, some nodes will stay in memory for a bit longer than they should in exchange for huge garbage collection saving, as the GC no longer have to traverse the tree at all. In a way, compact regions allows for an efficient longer-lived memory storage solution compared to the garbage-collected heap which works very well for data that will become unused after one or two GC cycles.
+
+Compact regions are supported by GHC (the main Haskell compiler), but to this day there is no way to directly deserialize data into a compact region. Instead, the deserialization will first create a data structure in the garbage-collected heap, which can then be copied into the compact region (and removed from the garbage-collected heap by the next GC cycle). This is still useful in the long run for a program, because the GC will only go through the tree one more time after it has been copied to the compact region (during which it will detect that all nodes are no longer used), and never after that. Nonetheless, it would be even better to directly deserialize the input data into a compact region, and eliminate the unnecessary copy and GC load that happen because a couple of GC cycles will take place during deserialization itself (especially if the input data is large).
+
+As it will be detailed in section~\ref{sec:implementation}, compact regions have been chosen to back the implementation of DPS in Haskell, mostly because they provide more freedom to do low-level memory operations without interfering with the GC. Because of that, the current implementation of destination-passing style Haskell gives a way to build structures directly into compact regions, bypassing the garbage-collected heap entirely, as we were looking to do! Compact regions also enforce strictness (unlike Haskell's default laziness), which is quite useful for a parser, as one would probably like to catch all potential errors in the input document at the beginning of the execution.
+
+\medskip
+
+We'll show here how a simple parser for S-expressions can be transformed into one using destinations for greater performance. S-expressions are parenthesized lists whose elements are just separated by spaces. These elements can be of several types: int, string, symbol (a textual token, with no quotes around it, unlike a string), or a list of other S-expressions.
 
 Parsing a S-expression can be done concisely with three mutually recursive functions:
 \begin{itemize}
@@ -206,137 +207,76 @@ Parsing a S-expression can be done concisely with three mutually recursive funct
   \item \mintinline{haskell}`parseSString` scans the input character by character and accumulates them until reaching a closing quote (taking escape sequences into consideration).
 \end{itemize}
 
-\begin{table}[t]
-\small
-\begin{minted}[frame=single,framesep=10pt,linenos]{haskell}
-parseSExpr :: ByteString → Int → Either ParseError SExpr
-parseSExpr bs i = case bs !? i of
-  Nothing → Left $ UnexpectedEOFSExpr i
-  Just c → case c of
-    ')' → Left $ UnexpectedClosingParen i
-    '(' → parseSList bs (i + 1) []
-    '"' → parseSString bs (i + 1) False []
-    _ →
-      let tok = extractNextToken bs i -- take chars until delimiter/space
-       in if null tok
-            then -- c is a (leading) space, skip it and recurse
-              parseSExpr bs (i + 1)
-            else case parseInt tok of
-              Just int → Right $ SInteger (i + length tok - 1) int
-              Nothing → Right $ SSymbol (i + length tok - 1) (toString tok)
+Only \mintinline{haskell}`parseSList` implementation will be presented here as it is enough for our purpose, but the full implementation of both the naive and destination-based versions can be found in annex~\ref{ann:parse-s-expr}
 
-parseSList :: ByteString → Int → [SExpr] → Either ParseError SExpr
+{\small
+\begin{minted}[linenos]{haskell}
+parseSList :: ByteString → Int → [SExpr] → Either Error SExpr
 parseSList bs i acc = case bs !? i of
-  Nothing → Left $ UnexpectedEOFSList i
-  Just c → \cases
-    | c == ')' → Right $ SList i (reverse acc)
+  Nothing → Left (UnexpectedEOFSList i)
+  Just c → if
+    | c == ')' → Right (SList i (reverse acc))
     | isSpace c → parseSList bs (i + 1) acc
     | otherwise → case parseSExpr bs i of
         Left err → Left err
         Right child → parseSList bs (endPos child + 1) (child : acc)
-
-parseSString :: ByteString → Int → Bool → [Char] → Either ParseError SExpr
-parseSString bs i escape acc = case bs !? i of
-  Nothing → Left $ UnexpectedEOFSString i
-  Just c → case c of
-    '"' | not escape → Right $ SString i (reverse acc)
-    '\\' | not escape → parseSString bs (i + 1) True acc
-    'n' | escape → parseSString bs (i + 1) False ('\n' : acc)
-    _ → parseSString bs (i + 1) False (c : acc)
 \end{minted}
-\caption{Implementation of S-expressions parser without destinations}
-\label{table:impl-sexpr-parser-without-dest}
-\end{table}
+}
 
-Now, the implementation presented in table~\ref{table:impl-sexpr-parser-without-dest} is already quite efficient for a strict setting. The functions are as tail-recursive as they can be, and they use indexing and slicing into a bytestring ($\mathcal{O}(1)$ operation) instead of potentially allocating a huge number of strings on the heap.
+This tail-recursive implementation above is quite standard: the accumulator \mintinline{haskell}`acc` collects the nodes that are returned by the call to \mintinline{haskell}`parseSExpr` in the reverse order (because it's the natural building order for a linked list without destinations). When the end of the SList is reached (line 5), the accumulator is reversed and stored in the \mintinline{haskell}`SList` constructor, before being returned.
 
-That being said, it is possible to obtain very significative performance gains by using destinations with only very little stylistic changes in the code.
+We will see that destinations can bring very significative performance gains with only very little stylistic changes in the code. Accumulators of tail-recursive functions just have to be changed into destinations. Instead of writing elements into a list that will be reversed at the end as we did before, the program in the destination style will directly write the elements into their final location:
 
-Accumulators of tail-recursive functions just have to be changed into destinations. Instead of writing elements into a list that will be reversed at the end as we did before, the program in the destination style will directly write the elements into their final location.
+{\small
+\begin{minted}[linenos,escapeinside=°°]{haskell}
+parseSListDPS :: ByteString → Int → Dest [SExpr] ⊸ Either Error Int
+parseSListDPS bs i d = case bs !? i of
+  Nothing → °\mnew{fill @'[] d}° ;; Left (UnexpectedEOFSList i)
+  Just c → if
+    | c == ')' → °\mnew{fill @'[] d}° ;; Right i
+    | isSpace c → parseSListDPS bs (i + 1) d
+    | otherwise →
+        let !(dh, dt) = °\mnew{fill @'(:) d}°
+        in case parseSExprDPS bs i °\mnew{dh}° of
+              Left err → fill @'[] dt ;; Left err
+              Right endPos → parseSListDPS bs (endPos + 1) °\mnew{dt}°
+\end{minted}
+}
 
-The current implementation of destination-style programming for Haskell is based on Compact Regions, which have two strong properties that clash with usual Haskell ones. First, strictness is mandatory, and any object written in a compact region will be forced into its normal form. Secondly, all objects from a same region will share the same lifetime. Those properties must be dealbreaker for some use cases, but for a parser, they very advantageous!
+Let's see what changed compared to the naive implementation:
 
-Indeed, in a program that consumes raw data and parses it (and for which performance does matter), it's uncommon for a part of the input, in its parsed but unprocessed form, to greatly outlive the rest of it. As a result, treating the deserialized data as a large object with a unique lifetime for all its parts is a decent approximation that then allows easier memory management, and as a result impressive garbage collection gains!
-
-As for strictness, most of the time, the result of deserialization will be a data tree, with hundred of nodes and leaves, whose consumption by the processing program will be strict because:
 \begin{itemize}
-  \item the programmer wants to catch any potential error in the input document early enough in the process;
-  \item most of the input will be read to produce the output anyway.
+  \item even for error cases, we are forced to consume the destination that we receive as an argument, hence we write some sensible default data to it (see line 3);
+  \item the \mintinline{haskell}`SExpr` value resulting from the call of \mintinline{haskell}`parseSExprDPS` is not collected by \mintinline{haskell}`parseSListDPS`; but instead written directly into its final location by \mintinline{haskell}`parseSExprDPS` through the passing and filling of destination \mintinline{haskell}`dh` (see line 9);
+  \item adding an element of type \mintinline{haskell}`SExpr` to the accumulator \mintinline{haskell}`[SExpr]` is replaced with adding a new cons cell with \mintinline{haskell}`fill @'(:)` into the hole represented by \mintinline{haskell}`Dest [SExpr]`, writing an element to the ``head'' destination, and then doing a recursive call with the ``tail'' destination passed as an argument (which has type \mintinline{haskell}`Dest [SExpr]` again);
+  \item instead of reversing and returning the accumulator at the end of the processing, it is enough to complete the list by writing a nil element to the tail destination (with \mintinline{haskell}`fill @'[]`) (see line 5).
 \end{itemize}
 
-All things considered, the properties imposed by the use of destinations seem very compatible with a parsing use-case.
+It is important to note that destinations allow to reverse the natural order in which a structure is built. For a list, the natural operation in functional programming languages is \emph{prepend}/\mintinline{haskell}`(:)`, which adds an element at the front of an existing list (bottom-up approach). Thanks to destinations, it's possible to build a list starting from an element which will stay at the head of the it, and add new elements towards the tail of the list (top-down approach, with \emph{append}/\mintinline{haskell}`fill @'(:)`). Of course, it is possible to mix both approaches, thanks to \mintinline{haskell}`fillComp`/\mintinline{haskell}`fillLeaf`.
 
-It is good to note that destination allow to reverse the natural order in which a structure is built. For a list, the natural operation in functional programming languages is \emph{prepend}/\emph{cons}, which adds an element at the front of an existing list (bottom-up approach). Thanks to destinations, it's possible to build a list starting from an element which will stay at the head of the it, and new elements will be added towards the tail of the list (\emph{append}/\emph{fillCons}). It's entirely possible to mix both approaches too, as it will be detailed in the API section.
+Thanks to that new implementation which is barely longer (in terms of lines of code) than the naive one, the program runs almost twice as fast, mostly because garbage-collection time goes to almost zero. The detailed benchmark is available in subsection~\ref{ssec:benchmark-parser}.
 
-Let's focus on the implementation using destinations, which is presented in table~\ref{table:impl-sexpr-parser-with-dest}:
+\TODO{Move the following paragraph elsewhere}
 
-\newcommand{\mnew}[1]{\colorbox{green}{#1}}
-\newcommand{\mold}[1]{\colorbox{red}{\sout{#1}}}
+In other terms, there is a duality between each constructor \mintinline[escapeinside=°°]{haskell}`C :: (f°$_i$°)°$_{i \in 1..n}$° → a` and the associated destination-filling function \mintinline[escapeinside=°°]{haskell}`fill @'C :: Dest a ⊸ (Dest f°$_i$°)°$_{i \in 1..n}$°`: the side of the arrow on which types resides is flipped, and a \mintinline{haskell}`Dest` prefix is added to each of them. Destination-based data building can be seen as more general than the usual constructor based-approach, as one can alway emulate a given constructor \mintinline{haskell}`C` with destinations, as shown in table~\ref{table:emulate-ctor}, whereas all the advantages of DPS programming that we described in this section cannot be emulated by the use of constructors alone. 
 
 \begin{table}[H]
 \small
 \begin{minted}[frame=single,framesep=10pt,linenos,escapeinside=°°]{haskell}
-parseSExprDS :: ByteString → Int → Dest SExpr ⊸ Either ParseError Int
-parseSExprDS bs i d = case bs !? i of
-  Nothing → °\mnew{d & fillLeaf defaultSExpr}° ;; Left $ UnexpectedEOFSExpr i
-  Just c → case c of
-    ')' → °\mnew{d & fillLeaf defaultSExpr}° ;; Left $ UnexpectedClosingParen i
-    '(' → parseSListDS bs (i + 1) °\mnew{(d & fill @'SList)}\mold{[]}°
-    '"' → parseSStringDS bs (i + 1) False °\mnew{(d & fill @'SString)}\mold{[]}°
-    _ →
-      let tok = extractNextToken bs i -- take chars until delimiter/space
-        in if null tok
-            then -- c is a (leading) space, skip it and recurse
-              parseSExprDS bs (i + 1) d
-            else case parseInt tok of
-              Just int →
-                °\mnew{d & fill @'SInteger & fillLeaf int}°
-                  ;; Right (i + length tok - 1)
-              _ →
-                °\mnew{d & fill @'SSymbol & fillLeaf (toString tok)}°
-                  ;; Right (i + length tok - 1)
+C :: (f°$_i$°)°$_{i \in 1..n}$° → a
 
-parseSListDS :: ByteString → Int → Dest [SExpr] ⊸ Either ParseError Int
-parseSListDS bs i d = case bs !? i of
-  Nothing → °\mnew{d & fill @'[]}° ;; Left $ UnexpectedEOFSList i
-  Just c →
-    \cases
-      | c == ')' → °\mnew{d & fill @'[]}° ;; Right i°\mold{(reverse acc)}°
-      | isSpace c → parseSListDS bs (i + 1) d
-      | otherwise →
-          let !(dh, dt) = °\mnew{d & fill @'(:)}°
-          in case parseSExprDS bs i °\mnew{dh}° of
-                Left err → dt & fill @'[] ;; Left err
-                Right endPos → parseSListDS bs (endPos + 1) °\mnew{dt}\mold{(child : acc)}°
-
-parseSStringDS :: ByteString → Int → Bool → Dest [Char] ⊸ Either ParseError Int
-parseSStringDS bs i escape d = case bs !? i of
-  Nothing → °\mnew{d & fill @'[]}° ;; Left $ UnexpectedEOFSString i
-  Just c → case c of
-    '"' | not escape → °\mnew{d & fill @'[]}° ;; Right i°\mold{(reverse acc)}°
-    '\\' | not escape → parseSStringDS bs (i + 1) True d
-    'n' | escape →
-        let !(dh, dt) = °\mnew{d & fill @'(:)}°
-         in °\mnew{dh & fillLeaf '\textbackslash{}n'}° ;; parseSStringDS bs (i + 1) False °\mnew{dt}\mold{('\textbackslash{}n' : acc)}°
-    _ →
-        let !(dh, dt) = °\mnew{d & fill @'(:)}°
-         in °\mnew{dh & fillLeaf c}° ;; parseSStringDS bs (i + 1) False °\mnew{dt}\mold{(c : acc)}°
+C' :: (f°$_i$°)°$_{i \in 1..n}$° → a
+C' (x°$_i$°)°$_{i \in 1..n}$° = fromIncomplete_' (
+  alloc <&> \(d :: Dest a) → case fill @'C d of
+    (dx°$_i$°)°$_{i \in 1..n}$° -> ;;°$_{i \in 1..n}$° (fillLeaf x°$_i$° dx°$_i$°))
 \end{minted}
-\caption{Implementation of S-expressions parser with destinations}
-\label{table:impl-sexpr-parser-with-dest}
+\caption{Emulating a constructor \texttt{C} with the destination-filling function \texttt{fill @'C}}
+\label{table:emulate-ctor}
 \end{table}
 
-\begin{itemize}
-  \item Even for error cases, we are forced to consume the destination that we receive as an argument, hence we write some sensible default data to it (see lines 3, 5, 23 and 36)
-  \item Because of the top-down approach, it's necessary to choose which variant of SExpr is being built very early (by writing the corresponding constructor into the \mintinline{haskell}`SExpr` destination), instead of building an accumulator and wrapping the variant constructor over it as it was done in the naive implementation (see lines 6 and 7);
-  \item The SExpr value resulting from the call of \mintinline{haskell}`parseSExpr` inside \mintinline{haskell}`parseSList` is no longer collected by the caller; but instead written directly into its final location by the callee (see lines 30 to 32).
-  \item Adding an element \mintinline{haskell}`a` to the accumulator \mintinline{haskell}`[a]` is replaced with adding a new cons cell with \mintinline{haskell}`fill @'(:)`, writing the element to the head destination (\mintinline{haskell}`Dest a`), and then continuing the processing with the tail destination (\mintinline{haskell}`Dest [a]`) (see lines 29, 32, 42 and 45).
-  \item Instead of reversing and returning the accumulator at the end of the processing, it is enough to complete the list by writing a nil element to the tail destination (with \mintinline{haskell}`fill @'[]`) (see lines 26 and 38).
-\end{itemize}
-
-Thanks to that new implementation, the program runs almost twice as fast as the previous one, mostly because garbage-collection time goes to almost zero. The detailed benchmark is available in section [INSERT SECTION].
-
-\section{Technical development}\label{sec:api}
+% TODO: remove clearpage
+\clearpage
+\section{API}\label{sec:api}
 
 \subsection{API Design}
 
@@ -457,6 +397,8 @@ To fill a hole represented by \mintinline{haskell}`Dest r a`, several functions 
 
 \mintinline{haskell}`fillLeaf` is just a restriction of \mintinline{haskell}`fillComp`. It is used very frequently for types whose constructors aren't \mintinline{haskell}`Fill`able because they wrap over unpacked or primitive fields.
 
+\section{Implementation}\label{sec:implementation}
+
 \subsection{Note about Compact Regions}
 
 TODO: + précis; linker papier, expliquer que historiquement pour but sérialisation, préciser fonctionnement précis vis à vis du GC
@@ -576,13 +518,13 @@ Its role is to manage threads, organize garbage collection and also to manage co
 
 There are also primops in GHC which are meant to be resolved at the \emph{Core to Stg} phase (emitting some code at compile time), but which don't trigger any specific interaction with the RTS at runtime. Among those are all the primitive numeric operators on primitive types (\mintinline{haskell}`+#`, \mintinline{haskell}`-#`...), and more generally all the performance-critical operations working on unboxed types, and which don't require any specific interaction or precaution with garbage collection or thread execution, or don't need a specific allocation scheme, etc.
 
-It is important to note for the next of that part that the RTS cannot really access information that would have been made available during the compilation of a specific haskell program. Indeed, the RTS included in the final executable for the given program is the same as the one included in all other executables made with the same version of GHC ; it isn't possible to parametrize the RTS with data collected during the compilation of the given program (ex: types used or defined in the program). The only data channel I found between the compilation stage of a program and the RTS is to reify the needed compile-time information into a runtime value that will later be passed to the RTS through a primop call.
+It is important to note for the next of that part that the RTS cannot really access information that would have been made available during the compilation of a specific haskell program. Indeed, the RTS included in the final executable for the given program is the same as the one included in all other executables made with the same version of GHC; it isn't possible to parametrize the RTS with data collected during the compilation of the given program (ex: types used or defined in the program). The only data channel I found between the compilation stage of a program and the RTS is to reify the needed compile-time information into a runtime value that will later be passed to the RTS through a primop call.
 
 \paragraph{New primops to support destination-style programming}
 
 What I want to do is twofold:
 \begin{itemize}
-\item First, add a primop to the RTS to allocate space into a compact region for a hollow constructor ;
+\item First, add a primop to the RTS to allocate space into a compact region for a hollow constructor;
 \item Second, add a non-RTS primop to reify the necessary information about a constructor into a runtime-value so that it can be communicated to the RTS (because the RTS cannot access that itself, as I explained above)
 \end{itemize}
 
@@ -686,7 +628,7 @@ There are two main ways to force a structure into normal form. The first one is 
 The second way to force a lazy structure into normal form is to copy it into a compact region. Indeed, the \mintinline{haskell}`compact`/\mintinline{haskell}`compactAdd` functions from \mintinline{haskell}`GHC.Compact` will efficiently force every thunk of a structure before writing their final value into the region. Most of the time, using \mintinline{haskell}`compact` is faster than using \mintinline{haskell}`force`, as the  \emph{forcing} code is written in C/C-- instead of Haskell, but it creates two issues:
 
 \begin{itemize}
-  \item the space allocated in the region for the result is counted towards the total memory allocated by the program. However, compact regions aren't suited for all use-cases. For some of them, the GC gains they would offer wouldn't balance for the extra time during which some garbage will continue to live in memory. As a result, it seems unfair to count the extra memory usage in the region incurred by \mintinline{haskell}`compact` for programs which wouldn't make use of compact regions in normal time (as the result structure is already present in the normal GC heap) ;
+  \item the space allocated in the region for the result is counted towards the total memory allocated by the program. However, compact regions aren't suited for all use-cases. For some of them, the GC gains they would offer wouldn't balance for the extra time during which some garbage will continue to live in memory. As a result, it seems unfair to count the extra memory usage in the region incurred by \mintinline{haskell}`compact` for programs which wouldn't make use of compact regions in normal time (as the result structure is already present in the normal GC heap);
   \item \mintinline{haskell}`compact` not only forces all thunks, but also copies their final value into the region. The time required to make the copy, despite being small, is still counted towards the total execution time of the program.
 \end{itemize}
 
@@ -706,7 +648,7 @@ To my knowledge, there is no better way than these two to mesure the time taken 
 
 \subsection{Performance of the SExpr parser}
 
-\subsection{Performance of BFS Tree traversal}
+\subsection{Performance of BFS Tree traversal}\label{ssec:benchmark-parser}
 
 \subsection{Qualitative evaluation of destination code VS naive code}
 
@@ -723,6 +665,104 @@ To my knowledge, there is no better way than these two to mesure the time taken 
 \item Using destinations in different contexts than compact regions (normal GC heap, other kinds of chunk-allocated memory)
 \end{itemize}
 
+\appendix
+
+\section{Full implementation of the S-expression parser}\label{ann:parse-s-expr}
+
+\begin{table}[H]
+  \small
+  \begin{minted}[frame=single,framesep=10pt,linenos]{haskell}
+  parseSExpr :: ByteString → Int → Either Error SExpr
+  parseSExpr bs i = case bs !? i of
+    Nothing → Left (UnexpectedEOFSExpr i)
+    Just c → case c of
+      ')' → Left (UnexpectedClosingParen i)
+      '(' → parseSList bs (i + 1) []
+      '"' → parseSString bs (i + 1) False []
+      _ →
+        let tok = extractNextToken bs i -- take chars until delimiter/space
+         in if null tok
+              then -- c is a (leading) space, skip it and recurse
+                parseSExpr bs (i + 1)
+              else case parseInt tok of
+                Just int → Right (SInteger (i + length tok - 1) int)
+                Nothing → Right (SSymbol (i + length tok - 1) (toString tok))
+  
+  parseSList :: ByteString → Int → [SExpr] → Either Error SExpr
+  parseSList bs i acc = case bs !? i of
+    Nothing → Left (UnexpectedEOFSList i)
+    Just c → if
+      | c == ')' → Right (SList i (reverse acc))
+      | isSpace c → parseSList bs (i + 1) acc
+      | otherwise → case parseSExpr bs i of
+          Left err → Left err
+          Right child → parseSList bs (endPos child + 1) (child : acc)
+  
+  parseSString :: ByteString → Int → Bool → [Char] → Either Error SExpr
+  parseSString bs i escape acc = case bs !? i of
+    Nothing → Left (UnexpectedEOFSString i)
+    Just c → case c of
+      '"'  | not escape → Right (SString i (reverse acc))
+      '\\' | not escape → parseSString bs (i + 1) True acc
+      'n'  | escape → parseSString bs (i + 1) False ('\n' : acc)
+      _ → parseSString bs (i + 1) False (c : acc)
+  \end{minted}
+  \caption{Implementation of the S-expression parser without destinations}
+  \label{table:impl-sexpr-parser-without-dest}
+  \end{table}
+
+\begin{table}[H]
+\small
+\begin{minted}[frame=single,framesep=10pt,linenos,escapeinside=°°]{haskell}
+parseSExprDPS :: ByteString → Int → Dest SExpr ⊸ Either Error Int
+parseSExprDPS bs i d = case bs !? i of
+  Nothing → °\mnew{fillLeaf defaultSExpr d}° ;; Left (UnexpectedEOFSExpr i)
+  Just c → case c of
+    ')' → °\mnew{fillLeaf defaultSExpr d}° ;; Left (UnexpectedClosingParen i)
+    '(' → parseSListDPS bs (i + 1) °\mnew{(fill @'SList d)}°
+    '"' → parseSStringDPS bs (i + 1) False °\mnew{(fill @'SString d)}°
+    _ →
+      let tok = extractNextToken bs i -- take chars until delimiter/space
+        in if null tok
+            then -- c is a (leading) space, skip it and recurse
+              parseSExprDPS bs (i + 1) d
+            else case parseInt tok of
+              Just int →
+                let °\mnew{!dint = fill @'SInteger d}° in
+                  °\mnew{fillLeaf int dint}° ;; Right (i + length tok - 1)
+              _ →
+                let °\mnew{!dsym = fill @'SSymbol d}° in
+                  °\mnew{fillLeaf (toString tok) dsym}° ;; Right (i + length tok - 1)
+
+parseSListDPS :: ByteString → Int → Dest [SExpr] ⊸ Either Error Int
+parseSListDPS bs i d = case bs !? i of
+  Nothing → °\mnew{fill @'[] d}° ;; Left (UnexpectedEOFSList i)
+  Just c → if
+    | c == ')' → °\mnew{fill @'[] d}° ;; Right i
+    | isSpace c → parseSListDPS bs (i + 1) d
+    | otherwise →
+        let !(dh, dt) = °\mnew{fill @'(:) d}°
+        in case parseSExprDPS bs i °\mnew{dh}° of
+              Left err → fill @'[] dt ;; Left err
+              Right endPos → parseSListDPS bs (endPos + 1) °\mnew{dt}°
+
+parseSStringDPS :: ByteString → Int → Bool → Dest [Char] ⊸ Either Error Int
+parseSStringDPS bs i escape d = case bs !? i of
+  Nothing → °\mnew{fill @'[] d}° ;; Left (UnexpectedEOFSString i)
+  Just c → case c of
+    '"'  | not escape → °\mnew{fill @'[] d}° ;; Right i
+    '\\' | not escape → parseSStringDPS bs (i + 1) True d
+    'n'  | escape →
+        let °\mnew{!(dh, dt) = fill @'(:) d}°
+          in °\mnew{fillLeaf '\textbackslash{}n' dh}° ;; parseSStringDPS bs (i + 1) False °\mnew{dt}°
+    _ →
+        let °\mnew{!(dh, dt) = fill @'(:) d}°
+          in °\mnew{fillLeaf c dh}° ;; parseSStringDPS bs (i + 1) False °\mnew{dt}°
+\end{minted}
+\caption{Implementation of the S-expression parser with destinations}
+\label{table:impl-sexpr-parser-with-dest}
+\end{table}
+\clearpage{}
 \printbibliography
 
 \end{document}
