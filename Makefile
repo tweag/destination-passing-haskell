@@ -26,7 +26,7 @@ arxiv-nix:
 # .PHONY: submission submission-nix
 
 clean:
-	rm -f *.aux *.bbl *.ptb *.pdf *.toc *.out *.run.xml
+	rm -f *.aux *.bbl *.ptb jflart*.pdf *.toc *.out *.run.xml
 	rm -f *.log *.bcf *.fdb_latexmk *.fls *.blg
 	rm -f jflart-programming-with-destinations.pdf
 	rm -f jflart-programming-with-destinations.lhs

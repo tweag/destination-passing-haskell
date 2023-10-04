@@ -29,6 +29,7 @@ pkgs.mkShell
           minted
           xpatch
           ulem
+          placeins
           # for lhs2tex
           # lazylist polytable
 
