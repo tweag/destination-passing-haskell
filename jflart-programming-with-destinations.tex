@@ -80,7 +80,7 @@ Using destinations as a way of allocating and building functional data structure
 % TODO Compact regions
 % TODO strict lazy haskell
 
-\section{Motivating examples for destination-passing style programming}
+\section{Motivating examples for destination-passing style programming}\label{sec:motivating-examples}
 
 Destination-passing style programming, which will be abbreviated DPS programming in the rest of the article, takes its source in the early days of imperative languages with manual memory management. In the C programming language, it's quite common for a function not to allocate memory itself for its result, but rather to receive a reference to a memory location where to write its result (often named \emph{out(put) parameter}). In that scheme, the caller of the function is both responsible for allocation and disposal of the cell in which the value will live. This is exactly what DPS programming is about: take control from the callee back to the caller about memory management.
 
@@ -387,6 +387,8 @@ instance Control.Functor.Linear (Incomplete a) where
 
 And \mintinline{haskell}`alloc :: ∀ a. Token ⊸ Incomplete a (Dest a)` is the only function in which a \mintinline{haskell}`Dest` appears in positive position, but locked by an \mintinline{haskell}`Incomplete` (which is an opaque wrapper for the user). So destinations can only ever be accessed by mapping over an \mintinline{haskell}`Incomplete` with \mintinline{haskell}`fmap`, and cannot leak to the outside. It isn't possible either for a \mintinline{haskell}`Dest a` to be linearly consumed by filling another \mintinline{haskell}`Dest (Dest a)` with \mintinline{haskell}`fillLeaf`, as the first argument of the \mintinline{haskell}`fillLeaf` function isn't used linearly.\footnote{This is both a restriction to the potential full power of destinations, and a requirement for memory safety of this API. Allowing destinations to be stored through destinations of destination creates a lot of issues for safety of the system.}
 
+Morally, this linear \mintinline{haskell}`Functor` instance says that one can temporary forget about the root of the structure under construction, and just manipulate the destinations as first-class objects that will produce remote building effects onto the structure that is invisible in the inner scope.
+
 \paragraph{Ensuring linear use of \texttt{Incomplete} objects}
 
 We made sure that destinations inside \mintinline{haskell}`Incomplete` objects could only be used linearly, and now we need to do the same for \mintinline{haskell}`Incomplete`s themselves. For that, we introduce a new token type \mintinline{haskell}`Token`. A token can be linearly exchanged one for one with an \mintinline{haskell}`Incomplete` of any type through \mintinline{haskell}`alloc`, and can be linearly duplicated with \mintinline{haskell}`dup2` or linearly deleted with \mintinline{haskell}`consume`. However, it cannot be linearly stored in \mintinline{haskell}`Ur` as it doesn't implement \mintinline{haskell}`Movable`.
@@ -397,25 +399,35 @@ As in the example above, we just ensure that \mintinline{haskell}`withToken :: �
 
 The last part of the API is the one in charge of actually building the structures in a top-down fashion, using layers of hollow constructors. 
 
-To fill a hole represented by \mintinline{haskell}`Dest r a`, several functions are available:
+To fill a hole represented by \mintinline{haskell}`Dest a`, three functions are available:
 
-\begin{itemize}
-  \item \mintinline{haskell}`fillLeaf :: ∀ r a. (RegionContext r) ⇒ a → Dest r a ⊸ ()` \\will use a non-linear value of type \mintinline{haskell}`a` to fill the hole;
-  \item \mintinline{haskell}`fillComp :: ∀ r a b. (RegionContext r) ⇒ Incomplete r a b ⊸ Dest r a ⊸ b` \\will use an incomplete object of type \mintinline{haskell}`a` to fill the hole; and the resulting holes for the bigger structure will be the ones of that object. In other terms, \mintinline{haskell}`fillComp` composes two structures with holes together;
-  \item \mintinline{haskell}`fill :: ∀ lCtor r a. Dest r a ⊸ DestsOf lCtor r a` \\takes a constructor as a type parameter (\mintinline{haskell}`lCtor`) and will write a hollow instance of that constructor into the \mintinline{haskell}`Dest r a`, returning the destinations corresponding to that constructor's fields.\\ For example, \mintinline{haskell}`fill @Just @r @(Maybe Int) :: Dest r (Maybe Int) ⊸ Dest r Int` writes a hollow \mintinline{haskell}`Just` constructor in the \mintinline{haskell}`Maybe Int` hole, and returns the \mintinline{haskell}`Dest Int` corresponding to the hole of type \mintinline{haskell}`Int` that still needs to be filled.
-\end{itemize}
+\paragraph{\texttt{fillLeaf} function}
 
-\mintinline{haskell}`fill` is probably the most interesting of the three, and will be the most used one too, because it enables the user to build data structures in a top-down approach, which complements very well the natural bottom-up way of constructing data structures in functional programming languages. Thanks to destinations, the user can now choose between those two approaches and pick the most efficient or more natural way for the problem at hand.
+\mintinline{haskell}`fillLeaf :: ∀ a. a → Dest a ⊸ ()` will use a value of type \mintinline{haskell}`a` to fill the hole represented by the destination. The destination is consumed linearly, but the value to fill the hole isn't (as indicated by the first non-linear arrow). Memory-wise, the address of the object \mintinline{haskell}`a` is written into the memory cell whose address is carried by the destination (see the part 1 of figure~\ref{fig:schema-dlist}).
 
-\mintinline{haskell}`fillComp` offers a way to mix both approaches: one can build small chunks in a top-down approach, and combine them together in a bottom-up fashion even if they aren't all complete.
+\paragraph{\texttt{fillComp} function}
 
-\mintinline{haskell}`fillLeaf` is just a restriction of \mintinline{haskell}`fillComp`. It is used very frequently for types whose constructors aren't \mintinline{haskell}`Fill`able because they wrap over unpacked or primitive fields.
+\mintinline{haskell}`fillComp :: ∀ a b. Incomplete a b ⊸ Dest a ⊸ b` is used to plug two \mintinline{haskell}`Incomplete` objects together. The parent \mintinline{haskell}`Incomplete` object into which the child \mintinline{haskell}`Incomplete` will be plugged isn't represented in the signature of the function. Instead, only the hole of the parent that will host the address of the child is represented by the \mintinline{haskell}`Dest a`; and \mintinline{haskell}`Incomplete a b` in the signature refers to the child object. A call to \mintinline{haskell}`fillComp` always takes place in the scope of \mintinline{haskell}`fmap` over the parent object (or \mintinline{haskell}`<&>` which is \mintinline{haskell}`fmap` with the order of the arguments reversed):
+{\small
+\begin{minted}[escapeinside=°°]{haskell}
+parent :: Incomplete BigStruct (Dest SmallStruct, Dest OtherStruct)
+child :: Incomplete SmallStruct (Dest Int)
 
-\TODO{Move the following paragraph elsewhere}
+comp = parent <&> \(ds, extra) -> fillComp child ds
+       :: Incomplete BigStruct (Dest Int, Dest OtherStruct)
+\end{minted}
+}
+The resulting structure \mintinline{haskell}`comp` is morally a \mintinline{haskell}`BigStruct`, that inherited the holes from the child structure (represented by the \mintinline{haskell}`Dest Int`). The other destination from the parent, \mintinline{haskell}`Dest OtherStruct`, is still there to be filled. The memory behavior of \mintinline{haskell}`fillComp` in action for difference lists can be seen in part 3 of figure~\ref{fig:schema-dlist}.
 
-There is a duality between each constructor \mintinline[escapeinside=°°]{haskell}`C` with type \mintinline[escapeinside=°°]{haskell}`C :: (f°$_i$°)°$_{i \in 1..n}$° → a` and the associated destination-filling function \mintinline[escapeinside=°°]{haskell}`fill @'C :: Dest a ⊸ (Dest f°$_i$°)°$_{i \in 1..n}$°`: the side of the arrow on which types resides is flipped, and a \mintinline{haskell}`Dest` prefix is added to each of them. Destination-based data building can be seen as more general than the usual constructor based-approach, as one can alway emulate a given constructor \mintinline{haskell}`C` with destinations, as shown in table~\ref{table:emulate-ctor}, whereas all the advantages of DPS programming that we described in this section cannot be emulated by the use of constructors alone. 
+\paragraph{\texttt{fill} function}
 
-\begin{table}[H]
+\mintinline{haskell}`fill` is probably the most interesting of the three, and will be the most used one too, because it enables the user to build data structures in a top-down approach, which complements very well the natural bottom-up way of constructing data structures in functional programming languages. Thanks to DPS programming for Haskell, the user can now choose between those two approaches and pick the most efficient or more natural way for the problem at hand.
+
+The concept of \mintinline{haskell}`fill :: ∀ lCtor a. Dest a ⊸ DestsOf lCtor a` is to take a constructor as a type parameter (\mintinline{haskell}`lCtor`) and to allocate a hollow heap object that has the same header/tag as the specified constructor but unspecified fields. The address of the allocated hollow constructor is written in the destination that is passed to \mintinline{haskell}`fill`. As a result, one hole is now filled, but there is one new hole in the structure for each field left unspecified in the hollow constructor that is now part of the bigger structure. So \mintinline{haskell}`fill` returns one destination of matching type for each of the fields of the constructor. An example of the memory behavior of \mintinline{haskell}`fill @'(:) @[a] :: Dest [a] ⊸ (Dest a, Dest [a])` is given in figure~\ref{fig:schema-dlist}.
+
+\mintinline{haskell}`DestsOf` is a type family (i.e. a function operating on types and returning a type) whose role is to map a constructor to the type of destinations for its fields. For example, \mintinline{haskell}`DestsOf 'Nil [a] = ()`, \mintinline{haskell}`DestsOf '(:) [a] = (Dest a, Dest [a])`, and \mintinline{haskell}`DestsOf 'Ur (Ur a) = Dest a`. There is hence a duality between the type of a constructor \mintinline[escapeinside=°°]{haskell}`C :: (f°$_i$°)°$_{i \in 1..n}$° → a` and the associated destination-filling function \mintinline[escapeinside=°°]{haskell}`fill @'C :: Dest a ⊸ (Dest f°$_i$°)°$_{i \in 1..n}$°`: the side of the arrow on which types resides is flipped, and a \mintinline{haskell}`Dest` prefix is added to each of them. Destination-based data building can be seen as more general than the usual bottom-up constructor approach, as it is possible to emulate the signature and behavior of a given constructor \mintinline{haskell}`C` with DPS programming, as shown in table~\ref{table:emulate-ctor}, whereas all the advantages of DPS programming that we described in section~\ref{sec:motivating-examples} cannot be emulated by the use of constructors alone.
+
+\begin{table}[t]
 \small
 \begin{minted}[frame=single,framesep=10pt,linenos,escapeinside=°°]{haskell}
 C :: (f°$_i$°)°$_{i \in 1..n}$° → a
