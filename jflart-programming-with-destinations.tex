@@ -35,6 +35,7 @@
 \newcommand{\dest}{-\prec}
 \newcommand{\TODO}[1]{{\color{red}\large #1}}
 \newcommand{\mnew}[1]{\colorbox{green}{#1}}
+\newcommand{\muline}[1]{\uline{#1}}
 \newcommand{\mold}[1]{\colorbox{red}{#1}}
 \newunicodechar{⊸}{\ensuremath{\multimap}}
 \newunicodechar{→}{\ensuremath{\to}}
@@ -79,6 +80,7 @@ Using destinations as a way of allocating and building functional data structure
 % TODO Destinations
 % TODO Compact regions
 % TODO strict lazy haskell
+% TODO <&>
 
 \section{Motivating examples for destination-passing style programming}\label{sec:motivating-examples}
 
@@ -202,7 +204,7 @@ This is exactly the role that the \mintinline{haskell}`Ur` wrapper plays. A \min
 
 With this example, we show how destinations can be used even in a non-linear setting in order to improve the expressiveness of the base language. This more natural and less convoluted implementation of breadth-first traversal also presents great performance gains compared to other functional implementations. \TODO{Insert benchmark}
 
-\subsection{Deserializing a large data tree: impact on garbage collection}
+\subsection{Deserializing a large data tree: impact on garbage collection}\label{ssec:parser-sexpr}
 
 Deserialization is a very common task in application development, and can become a crucial part of the program performance-wise, when the program in question is meant to be fed with large chunks of serialized data.
 
@@ -319,7 +321,7 @@ The function \mintinline{haskell}`toIncomplete` takes a non-linear argument of t
 
 The whole API is presented in table~\ref{table:destination-api}.
 
-\subsection{Ensuring write-once holes with linear types}\label{ssec:api-linearity}
+\subsection{Ensuring write-once model for holes with linear types}\label{ssec:api-linearity}
 
 Types aren't linear by themselves in Linear Haskell. Instead, functions can be made linear or not, but there is no way in direct style to state that a specific value that one own must be used exactly once. As a result, in order to enforce linearity over some resource type, one should use scope-passing style, which is a refinement over continuation-passing style. Instead of having an explicit producer of the resource type that isn't aware of the consumers for the resource, as in direct style:
 
@@ -441,20 +443,53 @@ C' (x°$_i$°)°$_{i \in 1..n}$° = fromIncomplete_' (
 \label{table:emulate-ctor}
 \end{table}
 
-\clearpage{}
-
-\TODO{--------------- Arrêt relecture ---------------}
-
 \section{Implementation}\label{sec:implementation}
+
+Having incomplete memory structures in memory inherently introduces a lot of tension with both the garbage collector and compiler. Indeed, the GC assumes that every heap object it has to run through is well-formed, whereas incomplete structures are absolutely ill-formed: they contain uninitialized fields with garbage data, in other terms, pointers that the GC should absolutely not follow (at the risk of causing a segmentation fault).
+
+The tension with the compiler is of lesser extent: the latter can make some optimizations because it assumes that every object is immutable, whereas DPS programming break that guarantee by mutating constructors after they have been allocated (albeit only one update can happen). That being said, these errors are deterministic and can be caught on the API implementation side, so in theory the user won't be bothered with them.
 
 \subsection{Compact Regions}\label{ssec:impl-compact-regions}
 
-TODO: + précis; linker papier, expliquer que historiquement pour but sérialisation, préciser fonctionnement précis vis à vis du GC
-TODO: rôle des compact regions ajd: GC savings pour données long-lived (exemple cache Arnaud) → Ici on pousse ce mécanisme plus loin
+As we teased in subsection~\ref{ssec:parser-sexpr}, \emph{compact regions} from~\cite{yang_efficient_2015} make it very convenient to implement DPS programming in 
+Haskell. A compact region represents a memory area in the Haskell heap, that is almost fully independent from the GC and the rest of the garbage-collected heap. For the GC, each compact region is seen as a single heap object with a single lifetime. The GC can efficiently check whether there is at least one pointer in the garbage-collected heap that points into the region, and while that is the case, the region is kept alive. When this condition is no longer matched, the whole region is discarded at once.
 
-At the moment, destination-style programming is only possible in compact regions. Compact regions are special chunks on the heap that will only be very lightly inspected by the garbage collector, and thanks to that, we can do chirurgical memory updates in those without being afraid that it will interfere with garbage collection (especially move operations).
+The result is that the GC won't traverse any node from the region: it is treated as one opaque block for the former. In reality, a compact region is made of blocks of the same size, so that it can grow efficiently when needed, but that doesn't change how things operate at a higher level. Also, compact regions are immobile in memory; the GC doesn't have to and won't move them.
 
-Because we have immobile chunks of memory, destinations can be implemented as a wrapper over a raw pointer which points to the memory location where data have to be written:
+Hence, using compact regions to implement destinations, we completely elude the concerns of tension between the garbage collector and incomplete structures we want to build. That is also why Haskell is a good candidate to experiment with DPS programming in an immutable, functional context: it has support for both linear types and compact regions; the former is used to make the interface safe, the latter to make the implementation safe.
+
+The only restriction that is brought by compact regions is that data in a region cannot contain pointers to the garbage-collected heap, or pointers to other regions: it must be self-contained. That forces us to slightly modify the API, to add a phantom type parameter \mintinline{haskell}`r` which tags each object with the identifier of the region it belongs to. A typeclass \mintinline{haskell}`Region r` is also needed to carry around the details about a region that are required in the implementation of the API functions. The API for DPS programming backed by compact regions is available in table~\ref{table:destination-api-regions} (The \mintinline{haskell}`Token` type and its associated functions \mintinline{haskell}`dup2` and \mintinline{haskell}`consume` are unchanged).
+
+The forced isolation of each region has a two main consequences:
+\begin{itemize}
+  \item \mintinline{haskell}`fillLeaf` has to copy each ``leaf'' value from the garbage-collected heap into the region in which it will be used as a leaf;
+  \item \mintinline{haskell}`fillComp` can only plug together two incomplete structures that originate from the same region.
+\end{itemize}
+
+\begin{table}[t]
+\small
+\begin{minted}[frame=single,framesep=10pt,escapeinside=°°]{haskell}
+type Region r :: Constraint
+°\mnew{withRegion :: ∀ a. (∀ r. Region r ⇒ Token ⊸ Ur a) ⊸ Ur a}°
+
+data Incomplete r a b
+fmap            :: ∀ r a b c. (b ⊸ c) ⊸ Incomplete r a b ⊸ Incomplete r b c
+alloc           :: ∀ r a.     Region r ⇒ Token ⊸ Incomplete r a (Dest r a)
+intoIncomplete  :: ∀ r a.     Region r ⇒ Token ⊸ a → Incomplete r a ()
+fromIncomplete_ :: ∀ r a.     Region r ⇒ Incomplete r a () ⊸ Ur a
+fromIncomplete  :: ∀ r a b.   Region r ⇒ Incomplete r a (Ur b) ⊸ Ur (a, b)
+
+data Dest r a
+type family DestsOf lCtor r a
+fill     :: ∀ lCtor a r. Region r ⇒ Dest r a → DestsOf lCtor r a
+fillComp :: ∀ r a b.     Region r ⇒ Incomplete r a b ⊸ Dest r a ⊸ b
+fillLeaf :: ∀ r a.       Region r ⇒ a → Dest r a ⊸ ()
+\end{minted}
+\caption{Destination API using compact regions}
+\label{table:destination-api-regions}
+\end{table}
+
+As we now have immobile chunks of memory, destinations can be implemented as a wrapper over a raw pointer (type \mintinline{haskell}`Addr#`) which points to the memory location where data have to be written:
 
 {\small
 \begin{minted}{haskell}
@@ -462,126 +497,95 @@ data Dest r a = Dest Addr#
 \end{minted}
 }
 
-The phantom type parameter \mintinline{haskell}`r` that is present everywhere in the API ensures that objects can only interact with other ones from the same region (as outgoing pointers across different regions are not allowed by design of Compact regions).
+The \mintinline{haskell}`Region r` typeclass has a single method \mintinline{haskell}`reflect`, not available to the user, that returns the \mintinline{haskell}`RegionInfo` structure associated to identifier \mintinline{haskell}`r`. We use the \mintinline{haskell}`reflection` library (providing \mintinline{haskell}`Data.Reflection`) to make that possible.
 
-A \mintinline{haskell}`Region` object is implemented as a newtype over \mintinline{haskell}`Compact FirstInhabitant`, which is composed of a pointer to the region header, a lock (because compact region writes are not thread-safe at the primitive level), and a pointer to a \mintinline{haskell}`FirstInhabitant` inside the region.
+The \mintinline{haskell}`withRegion` function is the new addition to the API. It is mostly a refinement over the \mintinline{haskell}`withToken` function from table~\ref{table:destination-api}. It receives a callback that must be agnostic in \mintinline{haskell}`r` (i.e. in which \mintinline{haskell}`r` must be a free type variable). It then spawns both a new compact region and a fresh type \mintinline[escapeinside=°°]{haskell}`°\muline{r}°` (not a variable), and then uses \mintinline{haskell}`Data.Reflection.reify` to provide an instance of \mintinline[escapeinside=°°]{haskell}`Region °\muline{r}°` on-the-fly that links \mintinline[escapeinside=°°]{haskell}`°\muline{r}°` and the \mintinline{haskell}`RegionInfo` for the newly spawned region, and calls the callback with \mintinline{haskell}`r` instantiated to \mintinline[escapeinside=°°]{haskell}`°\muline{r}°`.
 
-\mintinline{haskell}`RegionToken r` carries a non-linear \mintinline{haskell}`Region` and is used when a \mintinline{haskell}`Proxy r` would be necessary anyway to infer the \mintinline{haskell}`r` of \mintinline{haskell}`Dest`/\mintinline{haskell}`Incomplete` in a function signature. \mintinline{haskell}`RegionContext r` makes the region argument implicit when the region identifier \mintinline{haskell}`r` is already part of the types of the function arguments.
+\subsection{Representation of \texttt{Incomplete} objects}
 
-\subsection{User-land haskell implementation details}
- 
-One issue I had during implementation was choosing the right representation for \mintinline{haskell}`a` in \mintinline{haskell}`Incomplete r a b`.
+Ideally, as we detailed in the API, we want \mintinline{haskell}`Incomplete r a b` to contains a \mintinline{haskell}`a` and a \mintinline{haskell}`b`, and let the \mintinline{haskell}`a` free when the \mintinline{haskell}`b` is fully consumed (or linearly transformed into \mintinline{haskell}`Ur c`). So the most straightforward memory representation of an \mintinline{haskell}`Incomplete r a b` would be a pair of an (incomplete) \mintinline{haskell}`a` and a \mintinline{haskell}`b`.
 
-Ideally, we want \mintinline{haskell}`Incomplete r a b` to contains a \mintinline{haskell}`a` and a \mintinline{haskell}`b`, and let the \mintinline{haskell}`a` free when the \mintinline{haskell}`b` is fully consumed (or linearly transformed into \mintinline{haskell}`Ur c`). So the most straightforward representation of Incomplete would be a pair \mintinline{haskell}`data Incomplete r a b = Incomplete a b`.
+It is also natural for \mintinline{haskell}`alloc` to return an \mintinline{haskell}`Incomplete r a (Dest a)`: it represents a (future) structure of type \mintinline{haskell}`a` with a hole of type \mintinline{haskell}`a`. It's a bit like the identity function: there is nothing more here than an empty memory cell (named named \emph{root receiver}) which the associated destination points to.
 
-It is also natural for \mintinline{haskell}`alloc` to return an \mintinline{haskell}`Incomplete r a (Dest a)`: as soon as the \mintinline{haskell}`Dest a` is linearly consumed, a \mintinline{haskell}`a` will be available.
+% TODO: drawing 1
 
-However, building something of type \mintinline{haskell}`Incomplete r a (Dest a)` is not easy. The \mintinline{haskell}`Dest a` in question should carry the address of a memory cell in which the address of a constructor of type \mintinline{haskell}`a` will be written (by \mintinline{haskell}`fill` or a similar function). That memory cell is named \emph{root receiver}, because it will receive the address of the root of the object being built. Given the data definition above, the root receiver should hence be the first field of the \mintinline{haskell}`Incomplete` object. But the Incomplete object is not part of the compact region itself! It lives in the normal GC heap (which is crucial for early deallocation and memory optimizations); so it may move. As a result, we cannot just use the address of its left field as a destination and the left field as a root receiver.
+If \mintinline{haskell}`Incomplete r a b` is represented by a pair \mintinline{haskell}`(a, b)`, then the root receiver should be the first field of the pair. But the \mintinline{haskell}`Incomplete` object shouldn't be part of the compact region itself, whereas the root of the structure under construction, that will eventually live inside the root receiver, must be in the region (because of the risk of the GC following garbage pointers). Indeed, we want the \mintinline{haskell}`Incomplete` wrapper to be optimized away by the compiler when possible, and to be deallocated as soon as possible, both of which aren't possible if it lives in the region.
 
-The next natural move is to allocate a wrapper \mintinline{haskell}`W a` for \mintinline{haskell}`a` in the region, that will act as a root receiver, and have \mintinline{haskell}`data Incomplete r a b = Incomplete (W a) b`. Because the \mintinline{haskell}`a` will have to be wrapped in \mintinline{haskell}`Ur` when it is complete (see \mintinline{haskell}`fromRegion :: ∀ r a. (RegionContext r) ⇒ Incomplete r a () ⊸ Ur a`), we might as well use \mintinline{haskell}`Ur` as a wrapper and declare \mintinline{haskell}`data Incomplete r a b = Incomplete (Ur a) b`. It solves the previous issue of not having a receiver to write into.
+One potential solution is to represent \mintinline{haskell}`Incomplete r a b` by a pair \mintinline{haskell}`(Ur a, b)`. The \mintinline{haskell}`Ur` wrapper is allocated inside the region, and its field of type \mintinline{haskell}`a` is the root receiver. With that approach, the issue of \mintinline{haskell}`alloc`'s result representation is solved, but every \mintinline{haskell}`Incomplete` wrapper will now allocate a few words in the region (to host the \mintinline{haskell}`Ur` hollow constructor) that won't be collected by the GC until a long time. This makes \mintinline{haskell}`intoIncomplete` quite inefficient memory-wise too, as the \mintinline{haskell}`Ur` wrapper is only useful for actual incomplete structures, but useless for already complete ones.
 
-Unfortunately, that approach is quite unsatisfying because any \mintinline{haskell}`Incomplete` object will now allocate a few words into the region that won't be collected for a long time. In particular, putting a non-linear value inside the region with \mintinline{haskell}`intoRegion :: ∀ r a. RegionToken r ⊸ a → Incomplete r a ()` will allocate an unnecessary \mintinline{haskell}`Ur` wrapper, as the object is already fully built, and thus doesn't need a root receiver. With the \mintinline{haskell}`Ur` solution, it's no longer efficient to write \mintinline{haskell}`fillLeaf` as a composition \mintinline{haskell}`fillComp . intoRegion (getToken @r)`, and \mintinline{haskell}`fillLeaf` needs a dedicated optimized implementation.
+The desired outcome is to only allocate a root receiver in the region for actual incomplete structures, and skip that allocation for already complete structures that are turned into an \mintinline{haskell}`Incomplete` object, while preserving a same type for both use-cases. This is made possible by replacing the \mintinline{haskell}`Ur` wrapper inside the \mintinline{haskell}`Incomplete` by an 
+indirection object (\mintinline{haskell}`stg_IND` symbol) for the actually-incomplete case. \mintinline{haskell}`Incomplete r a b` will be represented by a pair \mintinline{haskell}`(a, b)` allocated in the garbage-collected heap, but:
+\begin{itemize}
+  \item in the pair \mintinline{haskell}`(a, b)` returned by \mintinline{haskell}`alloc`, the \mintinline{haskell}`a` side points to an indirection object (a sort of constructor with one field, whose resulting type \mintinline{haskell}`a` is the same as the field type \mintinline{haskell}`a`), that is allocated in the region, and serve as the root receiver;
+  \item in the pair \mintinline{haskell}`(a, b)` returned by \mintinline{haskell}`intoIncomplete`, the \mintinline{haskell}`a` side directly points to the object of type \mintinline{haskell}`a` that has been copied to the region.
+\end{itemize}
 
-Another approach we explored is to represent an \mintinline{haskell}`Incomplete` as a piece of data structure that would be concretized when it is given a root receiver. Delaying the construction of the structure that way is not efficient though, because instead of writing a structure to memory, we create huge closures representing the action of creating the structure.
+% TODO: drawing 2 & 3
 
-Finally, I decided to embed the \mintinline{haskell}`a` field in \mintinline{haskell}`Incomplete` not in a regular data constructor wrapper, but instead in a STG indirection closure (\mintinline{haskell}`stg_IND` symbol). The indirection closure is allocated into the compact region in the \mintinline{haskell}`alloc` case (for the same reasons as the \mintinline{haskell}`Ur` above was), but no indirection closure is needed in \mintinline{haskell}`intoRegion`, we can just store the fully built \mintinline{haskell}`a` directly in \mintinline{haskell}`Incomplete`. That way, we keep uniformity in the typing and runtime behaviour of \mintinline{haskell}`Incomplete` in both cases (as indirections are transparent for the RTS), and ensure that the overhead of `fillLeaf`/\mintinline{haskell}`intoRegion` is very small, at the cost of a few more alloc-ed words for each call of \mintinline{haskell}`alloc`. This is a fair price to pay because any real-world program should call \mintinline{haskell}`fillLeaf` way more than \mintinline{haskell}`alloc` (which is only required to create the root of a new big object).
+The implementation of \mintinline{haskell}`fromIncomplete` and \mintinline{haskell}`fromIncomplete_` is then relatively straightforward. They allocate a hollow \mintinline{haskell}`Ur _` or \mintinline{haskell}`Ur (_, _)` in the region, writes the address of the now complete structure into it, and returns the \mintinline{haskell}`Ur`.
 
-The implementation of \mintinline{haskell}`fromRegion` and \mintinline{haskell}`fromRegionExtract` is then relatively straightforward. \mintinline{haskell}`fromRegion :: ∀ r a. (RegionContext r) ⇒ Incomplete r a () ⊸ Ur a` discards the \mintinline{haskell}`()` value carried by the Incomplete, allocates a \mintinline{haskell}`Ur _` in the region, writes the address of the \mintinline{haskell}`a` value into the \mintinline{haskell}`Ur` slot, and returns it. \mintinline{haskell}`fromRegionExtract :: ∀ r a b. (RegionContext r) ⇒ Incomplete r a (Ur b) ⊸ Ur (a, b)` allocates a \mintinline{haskell}`Ur (_, _)` into the region, checks whether the \mintinline{haskell}`b` in \mintinline{haskell}`Ur b` is already part of the region or not (and copies it into the region if it isn't), and writes the address of the \mintinline{haskell}`a` and \mintinline{haskell}`b` values into the slots of the \mintinline{haskell}`Ur`ed pair before returning it.
+\subsection{Deriving \texttt{fill} for all constructors with \texttt{Generics}}
 
-\paragraph{Deriving \mintinline{haskell}`Fill` for all datatypes with `Generics`}
+% TODO: Notes from Arnaud's first pass
+% - Talk about implementation before that paragraph
+% - Theoretically, one function fillCtor per constructor Ctor, how to implement an infinity of functions?
+% - The constructor must be known statically
+% - Explain memory representation, especially unboxed fields and how that impacts fill
+% - Considerations about inlining, e.g. why we used Region r constraint instead of storing the necessary RegionInfo into Dest objects
 
-The \mintinline{haskell}`Fill lCtor r a` class has only one method, \mintinline{haskell}`fill :: Dest r a → DestsOf lCtor r a`.
+As it has been said before, the action of \mintinline{haskell}`fill @lCtor @a @r` is to allocate a new hollow constructor \mintinline{haskell}`Ctor _ :: a` in the region, and fill a hole represented by a destination of type \mintinline{haskell}`Dest r a` with its address. Because the constructor is hollow (i.e. its fields haven't been initialized), \mintinline{haskell}`fill` should also return destination objects pointing to these incomplete fields a.k.a. holes.
 
-As it has been said before, the action of \mintinline{haskell}`fill @lCtor @r @a` is to allocate a new hollow constructor \mintinline{haskell}`Ctor _ :: a` in the region, and fill a destination of type \mintinline{haskell}`Dest r a` with its address. Because the constructor is hollow (i.e. its fields haven't been initialized), \mintinline{haskell}`fill` should also return destination objects pointing to these incomplete fields a.k.a. holes.
+The type of the destinations that should be returned by \mintinline{haskell}`fill` is computed by the \mintinline{haskell}`DestsOf` type family by carefully inspecting the \mintinline{haskell}`Generic` representation of the type \mintinline{haskell}`a`. \mintinline{haskell}`GHC.Generics` is a built-in haskell library that provides compile-time inspection of a type metadata (list of constructors, fields, memory representation...) given the type implements the \mintinline{haskell}`Generic` typeclass. Fortunately, instances of that typeclass can be derived automatically by the compiler (instead of being implemented manually), making it easy to use for user-defined types. As a result, \mintinline{haskell}`DestsOf` can be used on any constructor of a type for which \mintinline{haskell}`Generic` is derived or implemented manually.
 
-The type of the destinations that should be returned by \mintinline{haskell}`fill` can be computed by carefully inspecting the \mintinline{haskell}`Generic` representation of the type \mintinline{haskell}`a`. Indeed, GHC.Generics is a haskell library that provides compile-time inspection of a type metadata (list of constructors, fields, memory representation...) if the type implements the \mintinline{haskell}`Generic` class. Fortunately, the implementation of the \mintinline{haskell}`Generic` class be derived automatically by the compiler (instead of being implemented manually), making it easy to use for user-defined types.
-
-In the \mintinline{haskell}`DestsOf` type family and in in the different \mintinline{haskell}`Fill` instance heads, I inspect the \mintinline{haskell}`Generic` representation of the given type \mintinline{haskell}`a` to find the metadata of the constructor whose lifted representation is \mintinline{haskell}`lCtor`, and then I extract the number of fields of the constructor and their types.
-
-For example, the \mintinline{haskell}`Generic representation` of \mintinline{haskell}`Maybe a` gives
+Here's an example of the \mintinline{haskell}`Generic` representation of \mintinline{haskell}`Maybe a`:
 
 {\small
 \begin{minted}[escapeinside=°°]{haskell}
+repl> :k! Rep (Maybe a) () -- display the Generic representation of Maybe a
 M1 D (MetaData "Maybe" "GHC.Maybe" "base" False) (
   M1 C (MetaCons "Nothing" PrefixI False) U1
   :+: M1 C (MetaCons "Just" PrefixI False) (M1 S [...] (K1 R a)))
 \end{minted}
 }
 
-indicating that there is zero fields with constructor \mintinline{haskell}`Nothing` and one field of type \mintinline{haskell}`a` with constructor \mintinline{haskell}`Just`. 
+There are two different possible constructors (indicated by lines starting with \mintinline{haskell}`M1 C`), the first one, \mintinline{haskell}`Nothing`, has zero field (indicated by \mintinline{haskell}`U1`), and the second one, \mintinline{haskell}`Just`, has one field of type \mintinline{haskell}`a` (indicated by \mintinline{haskell}`K1 R a`). This is exactly the kind of information that \mintinline{haskell}`DestsOf` extracts. It then iterates over the list of fields for a given constructor and return a destination with matching type for each.
 
+Fields of a constructor are stored contiguously in memory, and the $i$\textsuperscript{th} field is stored at offset $i \times wordsize$ from the constructor base address. So \mintinline{haskell}`fill` can immediately compute the address to associate to each destination when it knows the address of the hollow constructor that has been allocated.
 
-The representation for \mintinline{haskell}`(a, b)` gives
+The exception to that are unboxed or inlined fields, which are not represented by a pointer of fixed size in the parent object. Instead, their are wholly contained in the parent object, and can span over a couple of words. At the moment, constructors with inlined or unboxed fields are not supported by \mintinline{haskell}`fill`. For such a constructor, one has to allocate the constructor in the garbage-collected heap in the normal way and then use \mintinline{haskell}`fillLeaf` or \mintinline{haskell}`toIncomplete` to incorporate it into an \mintinline{haskell}`Incomplete` structure.
 
-{\small
-\begin{minted}[escapeinside=°°]{haskell}
-  M1 D (MetaData "Tuple2" "GHC.Tuple.Prim" "ghc-prim" False) (
-    (M1 C (MetaCons "(,)" PrefixI False) (
-      M1 S [...] (K1 R a)
-      :*: M1 S (K1 R b))))
-\end{minted}
-}
+\subsection{Performance considerations: inlining}
 
-indicating that there are two fields, one of type \mintinline{haskell}`a` and one of type \mintinline{haskell}`b`, with the \mintinline{haskell}`(,)` data constructor.
-
-Fields of a constructor are stored contiguously in memory, at offset $i \times \textit{wordsize}_{(i \in 1..n)}$ from the constructor base address. So \mintinline{haskell}`fill` just harvests the field metadata and can easily build as many destinations as there are fields, using the address of the newly allocated constructor as a base point. The extracted types of the fields are used to specify the phantom type parameter of the destinations.
+\TODO{Write this section ?}
 
 \subsection{Changes to GHC's internals and RTS}
 
-The implementation we described in the previous parts relies on being able to allocate hollow constructors. This is the key point of destination-style programming: building structures in a top-down approach, where nodes deeper in the data tree are left unspecified for some time.
+The runtime behavior of a Haskell program is directed by the \emph{run-time system}, or RTS, which is a software component written in a mix of C and C-{}- (the last language in the compilation pipeline of Haskell for a native build). The RTS is built once for all when GHC itself is being built, and it is then included in every executable produced by GHC.
 
-Usually, in Haskell, every field must be explicitly specified to allocate a constructor closure. This definitely makes sense as there is no (safe) way to later update a field in a mutable/in-place fashion; so an unspecified field would stay unspecified forever.
+Its role is to manage threads, organize garbage collection and also to manage compact regions (among other things). The RTS defines various primops that allow the haskell programmer to interact with it for those needs. For example, \mintinline{haskell}`compactAdd#` is the existing primitive operation, or \emph{primop}, that copies a heap object into an existing compact region, fully evaluating its potential sub-expressions along the way (as compact regions are strict).
 
-Of course, it is possible to overcome that well-founded rule by using a unique \emph{joker value} for every field of a constructor: \mintinline{haskell}`Right undefined` or \mintinline{haskell}`(undefined, undefined)` are valid haskell values that shouldn't blow up too fast. Using an unsafe coercion works too: \mintinline{haskell}`(unsafeCoerce (), unsafeCoerce ()) :: (a, b)` is valid. Theoretically, we hence have a way to allocate a somewhat hollow constructor.
+The implementation we described in the previous parts relies on being able to allocate hollow constructors in compact regions (whose fields aren't specified when it is allocated). This is the key point of destination-style programming: building structures in a top-down approach, where nodes deeper in the data tree are left unspecified for some time. So it would be quite natural to just add a new primitive to the RTS (in charge of managing compact regions) to allocate hollow constructors.
 
-That being said, there is no primitive in GHC at the moment that allows to allocate a value directly in a compact region. The only way to put something in a region is to copy something that has already been allocated in the normal GC heap. So even with the trick described above, the constructor closure would need to be allocated twice.
+The fact is, the RTS is not responsible for allocation of normal constructor (built in the garbage-collected heap). One reason is that it doesn't have the information needed to build a constructor heap object, namely, the info table associated to that constructor. The info table is what defines both the layout and behavior of a heap object. It contains a pointer to a block of code which tells how to evaluate the heap object, and also contains its number of captured values, their type, etc. The info table is what defines the sort of heap object: every heap object representing the constructor application of a given constructor (let's say \mintinline{haskell}`Just`) have the same info table, even when the associated type is parametric (\mintinline{haskell}`Maybe a`). As you can imagine, having a dedicated info table stored inside each heap object would be excessively expensive memory-wise. Instead, GHC uses sharing as much as possible, and only one info table is statically allocated for each sort of constructor used in a program. Then, all heap objects representing the application of this constructor have a pointer to the shared info table as their first word. That kind of sharing in fact quite common in other programming languages too: virtual tables are shared in the same way in C++.
 
-As a result, in order to obtain the maximum performance and memory gains from the use of destination, I had no other choice than to tweak the GHC compiler and add a new primitive operation (\emph{primop}) in charge of allocating a hollow constructor directly into a compact region.
+The \emph{STG to Cmm} step of the compilation pipeline of a Haskell program is the one in charge of factoring out the use of info tables and emitting a single static info table for each sort of constructor used in the program. It also defines a label \mintinline{haskell}`<constructor name>_con_info` for each constructor which refers to the associated info table, and which will be later resolved by the linker into an actual pointer to the shared info table. Because the RTS is a static piece of code that is compiled once (for each version of GHC) and then included uniformly --- with no change or customization --- into each program built with that version of GHC, it has no direct way to access the information emitted during the compilation of a program. This is rather counterintuitive: one might think at first that the runtime system would have at least as much power and potential knowledge as the compile-time system; but in this particular context, this isn't the case.
 
-\paragraph{About GHC architecture, RTS and primops}
-
-GHC is the main compiler for the Haskell programming language, and its compilation model involves several intermediary languages.
-
-First, Haskell code is turned into Core, a typed language whose syntax is mostly a subset of Haskell one. A lot of Haskell constructs are desugared into constructors and case expressions, type applications are made explicit, etc.
-Then, several optimization steps are made on the Core output, like removing case expressions on known constructors, or floating \mintinline{haskell}`let` expressions (moving them upwards in the code to factor out some computations).
-
-When all Core optimizations have been made, Core code is then transformed into STG code. In STG, all memory objects (called \emph{closures}) have the same memory representation, in the form of a pointer to a struct called the \emph{info table}, and a payload of a variable size (composed of primitive values and pointers to other closures). Because Haskell works in a lazy fashion, closures might not represent evaluated values, so the info table of each closure contains a pointer to a block of code that is responsible for evaluating the sub-expression that the closure represents. In other terms, the caller is not responsible for knowing how to evaluate the closure, but the closure itself is.
-As you can imagine, having a dedicated info table with each closure would be excessively expensive memory-wise (as both of them would need to be dynamically allocated). Instead, the STG uses sharing as most as possible, and for example, every dynamic closure representing the constructor application of a given constructor (let's say \mintinline{haskell}`Just`) will have the same info table pointer, pointing to a single statically-allocated info table. Indeed, no matter what type of argument it is applied to, every \mintinline{haskell}`Just` instance will have the same memory layout (only one boxed argument as a payload), and the same evaluation code (doing nothing and returning immediately because a constructor application is already in weak-head normal form). That kind of sharing in fact quite common in other programming languages too: virtual tables are shared in the same way in C++.
-
-Other specific info tables are also being shared in the STG: the ones for "blackholes" (which is used to indicate that a closure is currently under evaluation by a thread and that its result is still pending); the ones for indirection, etc.
-
-All that sharing is made through the use of labels:
+Now, we don't have a choice: we are forced to use the RTS to allocate some space for a hollow constructor in a compact region; only the RTS know how to handle regions. Because it cannot access the info table labels of constructors, we will reify them into static runtime values during compile time, so that the RTS can read them at runtime. Hence, we need two new primops:
 
 \begin{itemize}
-
-\item when the declaration of a data constructor is encountered (definition site), the corresponding info table is emitted to the static area of the output program, and its address is associated with the label \mintinline{haskell}`<constructor name>_con_info`
-\item when the use of a data constructor is encountered, the label \mintinline{haskell}`<constructor name>_con_info` is used in place of an actual address in the closure that is emitted
-\item later on in the compilation process, those labels will be converted by the linker into actual addresses
-
+\item one \emph{external} primop to allocate space into a compact region for a hollow constructor. This primop is untouched by the compilation pipeline; its associated machine code is to trigger the RTS so that it produces an effect on the compact region;
+\item one \emph{internal} primop to reify the info table label of a constructor into a runtime-value that can be communicated later to the RTS. This primop is fully resolved at compile time into a static value (a bit like a \mintinline{haskell}`constexpr` in C++ or a macro in Rust) and doesn't trigger any interaction with the RTS.
 \end{itemize}
 
-Now, the runtime behaviour of a Haskell program is directed by the \emph{run-time system}, or RTS, which is a software component written in a mix of C and C-- (the last language in the compilation pipeline of Haskell for a native build). The RTS is built once for all when GHC itself is being built, and it is then included in every executable produced by GHC.
+\paragraph{External primop: allocate hollow constructor through the RTS}
 
-Its role is to manage threads, organize garbage collection and also to manage compact regions (among other things). The RTS defines various primops that allow the haskell programmer to interact with it for those needs. For example, \mintinline{haskell}`compactAdd#` is the primitive operation that copies a closure into an existing compact region, fully evaluating its potentiel sub-expressions along the way.
+The implementation of the external primop mostly takes place in \mintinline{text}`rts/Compact.cmm`, the main C-{}- module of the RTS for compact regions management, as presented in table~\ref{table:impl-compactAddHollow}.
 
-There are also primops in GHC which are meant to be resolved at the \emph{Core to Stg} phase (emitting some code at compile time), but which don't trigger any specific interaction with the RTS at runtime. Among those are all the primitive numeric operators on primitive types (\mintinline{haskell}`+#`, \mintinline{haskell}`-#`...), and more generally all the performance-critical operations working on unboxed types, and which don't require any specific interaction or precaution with garbage collection or thread execution, or don't need a specific allocation scheme, etc.
-
-It is important to note for the next of that part that the RTS cannot really access information that would have been made available during the compilation of a specific haskell program. Indeed, the RTS included in the final executable for the given program is the same as the one included in all other executables made with the same version of GHC; it isn't possible to parametrize the RTS with data collected during the compilation of the given program (ex: types used or defined in the program). The only data channel I found between the compilation stage of a program and the RTS is to reify the needed compile-time information into a runtime value that will later be passed to the RTS through a primop call.
-
-\paragraph{New primops to support destination-style programming}
-
-What I want to do is twofold:
-\begin{itemize}
-\item First, add a primop to the RTS to allocate space into a compact region for a hollow constructor;
-\item Second, add a non-RTS primop to reify the necessary information about a constructor into a runtime-value so that it can be communicated to the RTS (because the RTS cannot access that itself, as I explained above)
-\end{itemize}
-
-The first step mostly takes place in \mintinline{text}`rts/Compact.cmm`, the main C-- module of the RTS for compact regions management, as presented in table~\ref{table:impl-compactAddHollow}.
-
-\begin{table}[H]
+\begin{table}[t]
 \small
 \begin{minted}[frame=single,framesep=10pt]{c}
-// compactAddHollow# :: Compact# → Addr# → State# RealWorld → (# State# RealWorld, a #)
+// compactAddHollow#
+//   :: Compact# → Addr# → State# RealWorld → (# State# RealWorld, a #)
 stg_compactAddHollowzh(P_ compact, W_ info)
 {
     W_ pp, ptrs, nptrs, size, tag, hp;
@@ -608,42 +612,55 @@ stg_compactAddHollowzh(P_ compact, W_ info)
 \label{table:impl-compactAddHollow}
 \end{table}
 
-The \mintinline{c}`stg_compactAddHollowzh` function is mostly a glorified call to the \mintinline{haskell}`ALLOCATE` macro defined in the same file, which tries to do a pointer-bumping alloc in the current block of the compact region if there is enough space, and otherwise add a new block to the region.
+The \mintinline{c}`stg_compactAddHollowzh` function (whose equivalent on the Haskell side is \mintinline{haskell}`compactAddHollow#`) is mostly a glorified call to the \mintinline{haskell}`ALLOCATE` macro defined in the same file, which tries to do a pointer-bumping allocation in the current block of the compact region if there is enough space, and otherwise add a new block to the region.
 
-As we said earlier, \mintinline{haskell}`stg_compactAddHollowzh`/\mintinline{haskell}`compactAddHollow#` needs to access the info table pointer of the constructor we want to allocate, but cannot do so directly as the RTS cannot access STG labels. This is why the function must receive a \mintinline{haskell}`info` parameter of type \mintinline{haskell}`W_`/\mintinline{haskell}`Addr#` (the former is the C-- type; the latter is the Haskell one).
+The function takes the info table pointer of the constructor to allocate as its second parameter (\mintinline{c}`W_ info`) because it cannot access that information itself, as we explained above. The info table pointer is written to the heap object in the call to \mintinline{c}`SET_HDR`.
+
+\paragraph{Internal primop: reify an info table label into a runtime value}
 
 Let's see how to reify the info table pointer of a constructor into a runtime value now. We want to add a new primitive operation in GHC that takes a compile-time-known string or constructor as input and compiles down to the label having that name or corresponding to the constructor's info table pointer.
 
-In Haskell, compile-time-known strings are represented by a type-level string literal of kind \mintinline{haskell}`Symbol`, and constructors can be lifted into type literals as well (with \mintinline{haskell}`LANGUAGE DataKinds` and prefixing the constructor with \mintinline{haskell}`'`, e.g. \mintinline{haskell}`'Just`). So the function we would like to build must have a type parameter somewhere, probably in one of its argument types, corresponding to that type-level literal input, like \mintinline{haskell}`reifyStgInfoPtr# :: Proxy# s → Addr#` (where \mintinline{haskell}`s` would stand for the lifted constructor or symbol).
+In Haskell, compile-time-known strings are represented by a type-level string literal of kind \mintinline{haskell}`Symbol`, and constructors can be lifted into type-level literals as well (with the \mintinline{haskell}`DataKinds` language extension). So the primop we would like to build, which is represented by a function on the user side, must have a type parameter somewhere, probably in one of its argument types, corresponding to that type-level literal input. Its common practice to use a \mintinline{haskell}`Proxy`/\mintinline{haskell}`Proxy#` to pass a type parameter as an input to a function in Haskell. Here, that would give a primop with the signature \mintinline{haskell}`reifyInfoPtr# :: Proxy# s → Addr#` (where \mintinline{haskell}`s` stands for the lifted constructor or symbol, and \mintinline{haskell}`Addr#` is the primitive type for pointers, corresponding to \mintinline{c}`W_` on the C-{}- side).
 
-The problem is, the compilation pipeline only start emitting labels at the \emph{STG to C--} phase. And at that point, almost all type information for polymorphic primops' parameters have been erased. Fortunately, for some technical reason, information about the actual return type of a primop is retained that late in the compilation process.
+The problem is, the compilation pipeline only start emitting labels at the \emph{STG to C-{}-} phase. And at that point, almost all type information for polymorphic primops' parameters have been erased. Fortunately, for some technical reason, information about the actual return type of a primop is retained that late in the compilation process.
 
-Here's the trick I used so: I built a dedicated return type for \mintinline{haskell}`reifyStgInfoPtr#`, namely \mintinline{haskell}`InfoPtrPlaceholder# a`. That type has a phantom type parameter but shares the same memory representation as \mintinline{haskell}`Addr#`. That way, it is possible to use a type hint to provide the type-level literal to the primop: \mintinline{haskell}`reifyStgInfoPtr# (# #) :: InfoPtrPlaceholder# a` will allow the implementation of \mintinline{haskell}`reifyStgInfoPtr#` to read the type parameter \mintinline{haskell}`a` even though it is both phantom and in return position.
+Here's the trick I used so: I built a dedicated return type for \mintinline{haskell}`reifyInfoPtr#`, namely \mintinline{haskell}`InfoPtrPlaceholder# a`. That type has a phantom type parameter but shares the same memory representation as \mintinline{haskell}`Addr#`. That way, it is possible to use a type annotation to provide the type-level literal to the primop: \mintinline{haskell}`reifyInfoPtr# (# #) :: InfoPtrPlaceholder# a` will allow the implementation of \mintinline{haskell}`reifyInfoPtr#` inside the compiler to read the type parameter \mintinline{haskell}`a` even though it is both phantom and in return position.
 
-The gist of this implementation is presented in table~\ref{table:impl-reifyStgInfoPtr}, which we will now comment a bit.
+The gist of this implementation is presented in table~\ref{table:impl-reifyInfoPtr}, which we will now comment a bit.
 
-\begin{table}[H]
+\begin{table}[t]
 \small
 \begin{minted}[frame=single,framesep=10pt,linenos]{haskell}
 case primop of
   [...]
   ReifyStgInfoPtrOp → \_ →  -- we don't care about the function argument (# #)
     opIntoRegsTy $ \[res] resTy → emitAssign (CmmLocal res) $ case resTy of
-      -- matches when 'a' is a Symbol, and extracts the symbol value as a FastString in 'sym'
+      -- when 'a' is a Symbol, and extracts the symbol value in 'sym'
       TyConApp _addrLikeTyCon [_typeParamKind, LitTy (StrTyLit sym)] →
-        CmmLit (CmmLabel (mkCmmInfoLabel rtsUnitId (fsLit "stg_" `appendFS` sym)))
-      -- matches when 'a' is a lifted data constructor, and extracts it as a DataCon (from GHC.Core.DataCon)
-      TyConApp _addrLikeTyCon [_typeParamKind, TyConApp tyCon _] | Just dataCon <- isPromotedDataCon_maybe tyCon → do
-        CmmLit (CmmLabel (mkConInfoTableLabel (dataConName dataCon) DefinitionSite))
+          CmmLit (CmmLabel (
+            mkCmmInfoLabel rtsUnitId (fsLit "stg_" `appendFS` sym)))
+      -- when 'a' is a lifted data constructor, extracts it as a DataCon
+      TyConApp _addrLikeTyCon [_typeParamKind, TyConApp tyCon _]
+        | Just dataCon <- isPromotedDataCon_maybe tyCon →
+          CmmLit (CmmLabel (
+            mkConInfoTableLabel (dataConName dataCon) DefinitionSite))
       -- return garbage data when no pattern matches
       _ → [...]
   [...]
 \end{minted}
-\caption{Implementation of \texttt{reifyStgInfoPtr\#} in GHC}
-\label{table:impl-reifyStgInfoPtr}
+\caption{Implementation of \texttt{reifyInfoPtr\#} in GHC}
+\label{table:impl-reifyInfoPtr}
 \end{table}
 
-Going from the \mintinline{haskell}`InfoPtrPlaceholder# a` returned by \mintinline{haskell}`reifyStgInfoPtr#` to an actual \mintinline{haskell}`Addr#` is just a matter of calling the \mintinline{haskell}`unsafeCoerceAddr` function supplied by GHC, as both type are represented by pointers/addresses under the hood.
+This function pattern-matches on the type \mintinline{haskell}`resTy` of the return value of the primop (which is parametric):
+\begin{itemize}
+  \item in the case it reads a string literal, it compiles the primop call into the label having the same name (prefixed with \mintinline{haskell}`"stg_"`), which is considered as a static value;
+  \item in the case it reads a lifted data constructor, it compiles the primop call into the label which corresponds to the info table pointer of that constructor, which is once again considered as a static value.
+\end{itemize}
+
+The primop that we implemented, \mintinline{haskell}`reifyInfoPtr#`, returns a value of type \mintinline{haskell}`InfoPtrPlaceholder# a` and not directly an \mintinline{haskell}`Addr#`, but this is not a problem: the former can be converted into the latter by calling the \mintinline{haskell}`unsafeCoerceAddr` function supplied by GHC, as both types are represented by pointers/addresses under the hood.
+
+\paragraph{Combining both primops}
 
 With both primops in hand, we can allocate a hollow constructor closure directly in a compact region in an efficient fashion. For example, for \mintinline{haskell}`Just`, one should do:
 {\small
@@ -651,17 +668,14 @@ With both primops in hand, we can allocate a hollow constructor closure directly
 hollowJust :: Maybe a
 hollowJust = compactAddHollow#
   compactRegion#
-  (unsafeCoerceAddr (reifyStgInfoPtr# (# #) :: InfoPtrPlaceholder# 'Just))  
+  (unsafeCoerceAddr (reifyInfoPtr# (# #) :: InfoPtrPlaceholder# 'Just))  
 \end{minted}
 }
 
 It would probably be possible to merge the two primops into a two-stage one (with both a compile-time and run-time action) without too much effort.
 
-\paragraph{Destination-style programming with stock GHC}
-
-During the early days of my research, I first experimented with hollow allocation without any modification to GHC codebase. Instead of using the primops I described above, I made heavy use of runtime heap inspection and \mintinline{haskell}`GHC.Generics` trickery to build hollow constructors with the correct info table pointers. As a result, it is still possible to use destinations-style programming without using a patched version of GHC, but performance gains are not guaranteed in that context.
-
-TODO: si temps restant, comparer les performances
+\clearpage{}
+\TODO{------------------------- STOP RELECTURE -------------------------}
 
 \section{Evaluating performance of destination-style programming}
 
@@ -673,7 +687,7 @@ First, the current implementation of destinations for Haskell uses compact regio
 
 There are two main ways to force a structure into normal form. The first one is to use the tools supplied by the \mintinline{haskell}`deepseq` package. That packages defines a typeclass, \mintinline{haskell}`NFData`, which can be easily derived for user-defined datatypes, which in turn gives access to functions like `force' or `rnf' that will force every thunk (pending lazy computation) from a value/structure. Using \mintinline{haskell}`deepseq` to benchmark the naive implementation (the one without destinations) has the advantage of not making unnecessary allocations, so the reported memory usage is accurate, but the \emph{forcing} operation might incur extra CPU usage and thus slow the program down, because forcing thunk artificially with \mintinline{haskell}`force` or \mintinline{haskell}`rnf` is not as efficient as if they were forced in an organic way by the RTS during the program execution.
 
-The second way to force a lazy structure into normal form is to copy it into a compact region. Indeed, the \mintinline{haskell}`compact`/\mintinline{haskell}`compactAdd` functions from \mintinline{haskell}`GHC.Compact` will efficiently force every thunk of a structure before writing their final value into the region. Most of the time, using \mintinline{haskell}`compact` is faster than using \mintinline{haskell}`force`, as the  \emph{forcing} code is written in C/C-- instead of Haskell, but it creates two issues:
+The second way to force a lazy structure into normal form is to copy it into a compact region. Indeed, the \mintinline{haskell}`compact`/\mintinline{haskell}`compactAdd` functions from \mintinline{haskell}`GHC.Compact` will efficiently force every thunk of a structure before writing their final value into the region. Most of the time, using \mintinline{haskell}`compact` is faster than using \mintinline{haskell}`force`, as the  \emph{forcing} code is written in C/C-{}- instead of Haskell, but it creates two issues:
 
 \begin{itemize}
   \item the space allocated in the region for the result is counted towards the total memory allocated by the program. However, compact regions aren't suited for all use-cases. For some of them, the GC gains they would offer wouldn't balance for the extra time during which some garbage will continue to live in memory. As a result, it seems unfair to count the extra memory usage in the region incurred by \mintinline{haskell}`compact` for programs which wouldn't make use of compact regions in normal time (as the result structure is already present in the normal GC heap);
