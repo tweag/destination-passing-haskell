@@ -67,6 +67,8 @@ Safety proofs for the API are not provided in this article though, and will be t
 
 \section{Introduction}
 
+% TODO: Linear constraints
+
 Destinations bring a taste of imperative programming in a pure functional environnement when performance really matters, without breaking memory safety.
 
 Using destinations as a way of allocating and building functional data structures can lead to better time and/or space performance for critical parts of a program, but destinations also increase expressiveness of a functional language.
@@ -674,32 +676,27 @@ hollowJust = compactAddHollow#
 
 It would probably be possible to merge the two primops into a two-stage one (with both a compile-time and run-time action) without too much effort.
 
+\paragraph{Built-in type family to go from a lifted constructor to the associated symbol}
+
+\TODO{Write this section?}
+
 \clearpage{}
 \TODO{------------------------- STOP RELECTURE -------------------------}
 
-\section{Evaluating performance of destination-style programming}
+\section{Evaluating performance of destination-passing style programming}
 
-\subsection{Benchmarking / profiling strategy}
+\subsection{Benchmarking methodology}
 
-Benchmarking code using destination hasn't been easy.
+All other this article, we talked about programs in both naive style (using regular Haskell constructors) and in DPS style, backed by compact regions.
 
-First, the current implementation of destinations for Haskell uses compact regions, which force strictness "for free", whereas regular Haskell code is lazy by default; and thus the produced data structures need to be explicitly forced into normal form.
+With DPS versions of the programs, the result is stored in compact regions, which also force strictness (so the whole resulting structure is in normal form, i.e. fully evaluated, inside the region). As a result, we must adapt the naive versions of the programs to add a copy of their result inside a compact region as a final step, so that we are comparing comparable things.
 
-There are two main ways to force a structure into normal form. The first one is to use the tools supplied by the \mintinline{haskell}`deepseq` package. That packages defines a typeclass, \mintinline{haskell}`NFData`, which can be easily derived for user-defined datatypes, which in turn gives access to functions like `force' or `rnf' that will force every thunk (pending lazy computation) from a value/structure. Using \mintinline{haskell}`deepseq` to benchmark the naive implementation (the one without destinations) has the advantage of not making unnecessary allocations, so the reported memory usage is accurate, but the \emph{forcing} operation might incur extra CPU usage and thus slow the program down, because forcing thunk artificially with \mintinline{haskell}`force` or \mintinline{haskell}`rnf` is not as efficient as if they were forced in an organic way by the RTS during the program execution.
+However, one might argue that for some programs (e.g. \mintinline{haskell}`map` for lists or \mintinline{haskell}`mapAccumBFS` for trees), having the result of the function stored in a compact region isn't particularly desirable; it might slightly benefits some use-cases and might be a bit worse for others. As a result, it wouldn't be fair to always incur the cost of the copy into the compact region (both time-wise and memory-wise) to all the naive versions of the programs.
 
-The second way to force a lazy structure into normal form is to copy it into a compact region. Indeed, the \mintinline{haskell}`compact`/\mintinline{haskell}`compactAdd` functions from \mintinline{haskell}`GHC.Compact` will efficiently force every thunk of a structure before writing their final value into the region. Most of the time, using \mintinline{haskell}`compact` is faster than using \mintinline{haskell}`force`, as the  \emph{forcing} code is written in C/C-{}- instead of Haskell, but it creates two issues:
-
-\begin{itemize}
-  \item the space allocated in the region for the result is counted towards the total memory allocated by the program. However, compact regions aren't suited for all use-cases. For some of them, the GC gains they would offer wouldn't balance for the extra time during which some garbage will continue to live in memory. As a result, it seems unfair to count the extra memory usage in the region incurred by \mintinline{haskell}`compact` for programs which wouldn't make use of compact regions in normal time (as the result structure is already present in the normal GC heap);
-  \item \mintinline{haskell}`compact` not only forces all thunks, but also copies their final value into the region. The time required to make the copy, despite being small, is still counted towards the total execution time of the program.
-\end{itemize}
-
-To my knowledge, there is no better way than these two to mesure the time taken by a strict program and by a lazy program, in an accurate and fair way.
-
+So for each program, we also benchmarked an alternative naive version that uses \mintinline{haskell}`Control.DeepSeq.force` to fully evaluate the result into normal form, which stays in the garbage-collected heap (no copy to a compact region). That being said, when the goal is to fully evaluate a result, \mintinline{haskell}`Control.DeepSeq.force` is often slower than just copying the result into a compact region (which operates the forcing more natively). But at least, memory usage is not inflated by the copy into the region.
 
 \begin{itemize}
 \item Three modes (-T, -s, -p)
-\item How to evaluate naive code (why we use both copyIntoRegion and force)
 \end{itemize}
 
 \subsection{Performance of map implementation (in a strict context)}
@@ -707,6 +704,8 @@ To my knowledge, there is no better way than these two to mesure the time taken 
 \begin{itemize}
 \item How this is important for Ocaml
 \end{itemize}
+
+% TODO: cite tail modulo cons
 
 \subsection{Performance of the SExpr parser}
 
