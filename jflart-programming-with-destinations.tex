@@ -92,7 +92,7 @@ DPS programming needs a concept of reference or pointer to communicate the locat
 
 It's time to see why DPS programming can be useful even in a pure functional context such as Haskell.
 
-\subsection{Efficient \emph{Difference list} implementation}
+\subsection{Efficient difference lists}
 
 Linked lists are a staple of functional programming, but they aren't efficient for concatenation, especially when the concatenation calls are nested to the left.
 
@@ -154,29 +154,40 @@ toList i = fromIncomplete_' (i <&> \dt → fill @'[] dt)
   \item \mintinline{haskell}`toList` completes the incomplete structure by plugging \emph{nil} into its hole with \mintinline{haskell}`fill @'[]` and removes the \mintinline{haskell}`Incomplete` wrapper which is no longer useful, as shown in part 4 of figure~\ref{fig:schema-dlist}.
 \end{itemize}
 
-This simplified API for difference lists still lacks some linearity requirements to make it write-once/immutable. In particular, the result of \mintinline{haskell}`alloc` should be used linearly but this isn't enforced by this API, and as a result, one could fill the embedded destination twice. Linearity concerns will be addressed in subsection~\ref{ssec:api-linearity}.
+This simplified API for difference lists still lacks some linearity requirements to make it write-once/immutable. In particular, the result of \mintinline{haskell}`alloc` should be used linearly but this isn't enforced by this API, and as a result, one could fill the embedded destination twice. Linearity concerns will be addressed in Section~\ref{ssec:api-linearity}.
 
 That being said, thanks to destination-style programming, not only we can express programs and functions whose implementation is closer to their intended memory behaviour (here, implementing data structures with holes), but we can also get important performance improvements too. \TODO{one sentence about the benchmark results compared to the function encoding}
+\TODO{There should be an explanation in this section about why destinations have linearity requirement}
 
-% TODO: remove clearpage
+\TODO{remove clearpage}
 \clearpage{}
 
 \subsection{Breadth-first tree traversal}\label{ssec:bf-tree-traversal}
 
-The idea of functional data structure with write-once holes is not new. In 1998, Minamide already proposed in~\cite{minamide_functional_1998} a variant of lambda calculus with support for \emph{hole abstractions}, which can be represented in memory by an incomplete structure with one hole and can be composed efficiently with each other (as with \mintinline{haskell}`fillComp` above). With such framework, it is fully possible to implement destination-backed difference lists, as we developed in the previous section.
+The idea of functional data structure with write-once holes is not new. In 1998, Minamide already proposed in~\cite{minamide_functional_1998} a variant of $\lambda$-calculus with support for \emph{hole abstractions}, which can be represented in memory by an incomplete structure with one hole and can be composed efficiently with each other (as with \mintinline{haskell}`fillComp` above). With such framework, it is fully possible to implement destination-backed difference lists, as we developed in the previous section.
 
 However, in Minamide's work, there is no concept of destination: the hole in a structure can only be filled if one has the structure itself at hand. On the other hand, our paper introduces destinations, which are a way to interact with a hole remotely, even when one doesn't have a handle to the associated data structure. Because destination are treated as first-class objects, they can be passed around or stored in collections or other structure. Being able not only to represent data structures with holes, but also manipulate references to these holes as first-class objects while preserving memory safety, is the major step forward that this paper presents.
 
 The fact that destinations can be stored in arbitrary data structures opens the way for more natural and efficient implementations of some functional data structure algorithms, for example breadth-first tree traversal, which isn't easy to implement in a standard immutable setting.
 
-In breadth-first tree traversal (with effects), the order in which effects should be sequenced is completely different than the natural order of traversal of the tree. As a result, many tricks should be employed to reconciliate those two realities. Even the most elegant solutions such as \cite{gibbons_phases_2023} often involve several traversals of the tree, or the construction of additional cost-heavy structures.
+Consider the problem, which Okasaki attributes to Launchbury \TODO{Cite https://doi.org/10.1145/351240.351253}
+\begin{quote}
+  Given a tree $T$ , create a new tree of the same
+  shape, but with the values at the nodes replaced
+  by the numbers $1\ldots|T|$ in breadth-first order.
+\end{quote}
 
-With storable destinations in our toolbelt, we can implement a solution that is both easy to write and efficient, doing only a single traversal pass on the original tree. The main idea is to keep a queue of pairs, whose first component is the next node from the input tree to process, and the second is a destination referring to the location in the output tree where to write the result of processing that node. Functional structures with holes make it possible to let some parts of the tree "unfinished" for some time, and to come back at them later when it's their turn to be processed. And storing destinations which refer to these holes in a queue allows the effects to be applied in a breadth-first order so that the tree can be built in one pass. The implementation is provided in table~\ref{table:impl-bfs-tree-traversal}.
+This problem admits a straightforward implementation if we're allowed to mutate trees. But a pure implementation is quite tricky: it's the entire subject of Okasaki's paper \TODO{Cite https://doi.org/10.1145/351240.351253} as well as the earlier\TODO{Cite http://www.cs.ox.ac.uk/publications/publication2363-abstract.html}. More recently, a very elegant, albeit very clever, solution was proposed~\cite{gibbons_phases_2023}.
+
+With storable destinations in our toolbelt, we can implement a solution that is both easy to come up with and efficient, doing only a single traversal pass on the original tree. The main idea is to keep a queue of pairs of a tree to be relabeled and the destination where the the relabeled result is expected (this is where destinations are stored!). Destinations make it possible to leave some parts of the tree ``unfinished'' for some time, and to come back to them later when it's their turn to be processed. The implementation provided in table~\ref{table:impl-bfs-tree-traversal}, really implements the slightly more general \mintinline{haskell}`mapAccumBFS`, which traverses a tree in breadth-first order and applies a relabeling function that can depend on a state.
 
 \begin{table}[t]
 \small
 \begin{minted}[frame=single,framesep=10pt,linenos]{haskell}
 data Tree a = Nil | Node a (Tree a) (Tree a)
+
+relabelBFS :: Tree a → Tree Int
+relabelBFS tree = fst (mapAccumBFS (\s _ -> (s+1, s)) 1 tree)
 
 mapAccumBFS :: ∀ a b s. (s → a → (s, b)) → s → Tree a → (Tree b, s)
 mapAccumBFS f s0 tree =
@@ -198,19 +209,18 @@ mapAccumBFS f s0 tree =
 \label{table:impl-bfs-tree-traversal}
 \end{table}
 
-One can note that the signature of \mintinline{haskell}`mapAccumBFS` doesn't involve linear types. They are only put into use in the implementation of the \mintinline{haskell}`go` sub-function, as a way to ensure memory safety when using destinations. When \mintinline{haskell}`go` is first called, its argument are the initial state \mintinline{haskell}`s0` and a single-element queue containing a pair of the root of the input tree and a destination for the root of the output tree. Then, during the recursive calls to \mintinline{haskell}`go`, the queue is updated, and linearity enforces the fact that every destination ever put in the queue is eventually filled at some point, which guarantees that the output tree is complete after the function has run, and thus can be made readable.
+Note that the signature of \mintinline{haskell}`mapAccumBFS` doesn't involve linear types. Linear types only appear in the inner loop \mintinline{haskell}`go`, which manipulates destinations. Linearity enforces the fact that every destination ever put in the queue is eventually filled at some point, which guarantees that the output tree is complete after the function has run, and thus can be made readable.
 
+\TODO{Revisit the two paragraphs on Ur, below, when we have an introduction}
 Because the state-transforming function \mintinline{haskell}`s → a → (s, b)` is non-linear, the leaves of the original tree (that are stored together with destinations in the queue) won't be consumed in a linear fashion. However, as we said, destinations must be all consumed linearly, and for that to hold, their container must be consumed linearly too. So we need a trick to indicate that one sub-part of the queue is allowed to be consumed non-linearly while the rest of the structure will appeared to be consumed linearly.
 
 This is exactly the role that the \mintinline{haskell}`Ur` wrapper plays. A \mintinline{haskell}`Ur a` will appear to be consumed linearly even if its inner value of type \mintinline{haskell}`a` is consumed non-linearly. But only values coming from a non-linear source can be put wrapped in \mintinline{haskell}`Ur`. More precisely, \mintinline{haskell}`Ur` delimitates areas for non-linear values inside structures that are meant to be handled linearly, and only values already wrapped in \mintinline{haskell}`Ur` or coming from the left of a non-linear function arrow \mintinline{haskell}`→` can be put in another \mintinline{haskell}`Ur`. Destinations always appear on the left of linear function arrows \mintinline{haskell}`⊸`, so they couldn't be wrapped in \mintinline{haskell}`Ur` in an attempt to escape the API safety.
 
 With this example, we show how destinations can be used even in a non-linear setting in order to improve the expressiveness of the base language. This more natural and less convoluted implementation of breadth-first traversal also presents great performance gains compared to other functional implementations. \TODO{Insert benchmark}
 
-\subsection{Deserializing a large data tree: impact on garbage collection}\label{ssec:parser-sexpr}
+\subsection{Deserializing, lifetime, and garbage collection}\label{ssec:parser-sexpr}
 
-Deserialization is a very common task in application development, and can become a crucial part of the program performance-wise, when the program in question is meant to be fed with large chunks of serialized data.
-
-More importantly, when a large file is deserialized into a tree of heap objects in a garbage-collected language, the presence of the tree in the heap will dramatically increase the time taken by each garbage collection cycle, as the garbage collector (GC) will have to go through every path in the tree to check whether or not each node is alive. However, it is very common for the all the tree's nodes to stay alive for almost the same duration, and to become unused by the program roughly at the same time. Hence, the high frequency at which the GC runs is quite unadapted for that use case, and the program's performance will be hampered.
+In client-server applications, the following pattern is very frequent: the server receives a request from a client with a serialized payload, the server then deserializes the payload, runs some code, and respond to the request. Most often, the deserialized payload is kept alive for the entirety of the request handling. In a garbage collected language, there's a real cost to this: for the entire duration of the request, the garbage collector (GC) will traverse the deserialized payload again and again, even though we know that it doesn't need to.
 
 As a result, it can be highly desirable to consider the large data tree as a single heap object with a single lifetime for all its nodes. If the tree is stored in a delimited memory area (with a start address and end address known by the GC), it becomes easy for the GC to check whether there is an object that reference a part of the tree just by checking the boundaries of the area in which the tree lives. Then the tree can be discarded when there is no reference pointing to its associated memory area. Using this technique, that has first been implemented for haskell in~\cite{yang_efficient_2015} under the name of \emph{compact regions}, some nodes will stay in memory for a bit longer than they should in exchange for huge garbage collection saving, as the GC no longer have to traverse the tree at all. In a way, compact regions allows for an efficient longer-lived memory storage solution compared to the garbage-collected heap which works very well for data that will become unused after one or two GC cycles.
 

@@ -56,7 +56,7 @@ nix::
 	nix-shell --pure --run make
 
 continuous::
-	ls jflart-programming-with-destinations.mng bibliography.bib | entr make
+	ls jflart-programming-with-destinations.tex bibliography.bib | entr make
 
 continuous-nix:: nix
 	nix-shell --pure --run "make continuous"
