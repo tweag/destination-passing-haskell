@@ -67,14 +67,19 @@ Safety proofs for the API are not provided in this article though, and will be t
 
 \section{Introduction}
 
+Destination-passing style (DPS) programming takes its source in the early days of imperative languages with manual memory management. In the C programming language, it's quite common for a function not to allocate memory itself for its result, but rather to receive a reference to a memory location where to write its result (often named \emph{out parameter}). In that scheme, the caller of the function is both responsible for allocation and disposal of the cell in which the value will live. This is exactly what DPS programming is about: take control from the callee back to the caller about memory management.
+
+The goal of DPS programming is to allow a bit of imperative techniques in a pure functional setting when performance really matters; but we don't want to import all the issues related to manual memory handling. Hence, in this paper, we design a memory API whose safety is ensured through a linear type discipline. Linear types systems are based on Girard's Linear logic~\cite{girard_linear_1995}, and introduce the concept of \emph{linearity}: one can express through types that a function will \emph{consume} its argument exactly once given the function result is \emph{consumed} exactly once too. Linearity helps to manage resources that one should not forget to \emph{consume} (e.g. forgetting to close a file or to initialize a memory cell with a value), but also that shouldn't be reused several times (e.g. a unique token in an API).
+
+The Haskell programming language is equipped with support for linear types through its main compiler, \emph{GHC}, since version 9.0.1~\cite{bernardy_linear_2018}. It also supports \emph{compact regions}~\cite{yang_efficient_2015}, which are very practical to implement support for DPS programming in a language with a copying garbage collector as we will detail in subsection~\ref{ssec:impl-compact-regions}. These are the main reasons why Haskell has been chosen as the basis for this implementation.
+
+DPS programming is based on the concept of \emph{destination}, which can be seen as a reference or pointer to the location of a memory cell which hasn't been filled yet. Such a memory cell is named a \emph{hole}. The existence of a destination is directly linked to the existence of an accompanying hole; we say that a destination is \emph{filled} or \emph{consumed} when one reads the address carried by the destination and writes something in the associated hole. The destination must ceased to exist as soon as the hole has been filled. As one can imagine, destinations are resources that have to be managed linearly; in other terms, we must leverage the linear type system to ensure that every destination is consumed exactly once.
+
+Using destinations as a way of allocating and building functional data structures can lead to better time and/or space performance for critical parts of a program. But more than just a performance improvement, destinations can also increase the expressiveness of an immutable functional language, as some algorithms --- such as breadth-first tree traversal presented in section~\ref{ssec:bf-tree-traversal} --- are hard to express in a pure functional manner but very natural to implement in an imperative context.
+
+Section~\ref{sec:motivating-examples} of this paper presents three common problems which benefit greatly from a DPS-based implementation --- for either a performance or expressiveness reason. Section~\ref{sec:api} focuses on the design of a type-safe API to handle destinations in a language equipped with linear types. Then, section~\ref{sec:implementation} details how we tackled the implementation of the DPS API with/inside GHC, and the couple of challenges that arose. Finally, section~\ref{sec:benchmark} presents benchmarks for the various implementations shown in section~\ref{sec:motivating-examples} as well as implementations of the \mintinline{haskell}`map` function based on destinations.
+
 % TODO: Linear constraints
-
-Destinations bring a taste of imperative programming in a pure functional environnement when performance really matters, without breaking memory safety.
-
-Using destinations as a way of allocating and building functional data structures can lead to better time and/or space performance for critical parts of a program, but destinations also increase expressiveness of a functional language.
-
-\TODO{Write introduction}
-
 %TODO: conceptuellement simple, mais beaucoup d'obstacles techniques pour rendre ça possible.
 % TODO GHC where purity is enforced
 % TODO Also because it has good support for linear type discipline
@@ -86,9 +91,9 @@ Using destinations as a way of allocating and building functional data structure
 
 \section{Motivating examples for destination-passing style programming}\label{sec:motivating-examples}
 
-Destination-passing style (DPS) programming takes its source in the early days of imperative languages with manual memory management. In the C programming language, it's quite common for a function not to allocate memory itself for its result, but rather to receive a reference to a memory location where to write its result (often named \emph{out(put) parameter}). In that scheme, the caller of the function is both responsible for allocation and disposal of the cell in which the value will live. This is exactly what DPS programming is about: take control from the callee back to the caller about memory management.
 
-DPS programming needs a concept of reference or pointer to communicate the location of the memory cell in which the called function should write its result. In functional programming languages, these are often named \emph{destinations}, so we will use this name to refer to the address of a write-once memory cell in Haskell.
+
+
 
 It's time to see why DPS programming can be useful even in a pure functional context such as Haskell.
 
@@ -105,14 +110,6 @@ With such representation, concatenation is just function composition: \mintinlin
 In DPS, instead of encoding the concept of a write-once hole with a function, we can represent the hole as a first-class object with a \emph{destination}. A difference list now become an actual data structure in memory --- not just a pending computation --- that has two handles: one to the root of the list of type \mintinline{haskell}`[a]`, and one to the yet-to-be-filled hole in the last cons cell, represented by a destination of type \mintinline{haskell}`Dest [a]`.
 
 With the function encoding, it isn't possible to read the list until a last element of type \mintinline{haskell}`[a]` have been supplied to complete it. With the destination representation, this constraint must persists: the actual list \mintinline{haskell}`[a]` shouldn't be readable until the accompanying destination is filled (or \emph{linearly consumed}, as we sometimes write), otherwise memory safety wouldn't be respected. This constraint is embodied by the \mintinline{haskell}`Incomplete a b` type of our destination API: \mintinline{haskell}`b` is what needs to be linearly consumed to make the \mintinline{haskell}`a` readable. Most of the time, the \mintinline{haskell}`b` side carries the destinations of the structure. A difference list is then \mintinline{haskell}`type DList a = Incomplete [a] (Dest [a])`: one should fill the \mintinline{haskell}`Dest [a]` (with a \mintinline{haskell}`[a]`) to get a readable \mintinline{haskell}`[a]`.
-
-% TODO
-% How to fill these holes?
-
-% 1. fillLeaf + schema
-% 2. fill @' + schema
-% 3. fillComp + schema
-% Those 3 will be useful for the implementation of ...
 
 The implementation of operations on destination-backed difference lists are presented in table~\ref{table:impl-dlist}.
 \begin{table}[t]
@@ -238,16 +235,16 @@ However, in Minamide's work, there is no concept of destination: the hole in a s
 
 The fact that destinations can be stored in arbitrary data structures opens the way for more natural and efficient implementations of some functional data structure algorithms, for example breadth-first tree traversal, which isn't easy to implement in a standard immutable setting.
 
-Consider the problem, which Okasaki attributes to Launchbury \TODO{Cite https://doi.org/10.1145/351240.351253}
+Consider the problem, which Okasaki attributes to Launchbury~\cite{okasaki_bfs_2000}
 \begin{quote}
   Given a tree $T$ , create a new tree of the same
   shape, but with the values at the nodes replaced
   by the numbers $1\ldots|T|$ in breadth-first order.
 \end{quote}
 
-This problem admits a straightforward implementation if we're allowed to mutate trees. But a pure implementation is quite tricky: it's the entire subject of Okasaki's paper \TODO{Cite https://doi.org/10.1145/351240.351253} as well as the earlier\TODO{Cite http://www.cs.ox.ac.uk/publications/publication2363-abstract.html}. More recently, a very elegant, albeit very clever, solution was proposed~\cite{gibbons_phases_2023}.
+This problem admits a straightforward implementation if we're allowed to mutate trees. But a pure implementation is quite tricky: it's the entire subject of Okasaki's paper~\cite{okasaki_bfs_2000} as well as the earlier~\cite{jones_gibbons_linearbfs_93}. More recently, a very elegant, albeit very clever, solution was proposed in~\cite{gibbons_phases_2023}.
 
-With storable destinations in our toolbelt, we can implement a solution that is both easy to come up with and efficient, doing only a single traversal pass on the original tree. The main idea is to keep a queue of pairs of a tree to be relabeled and the destination where the the relabeled result is expected (this is where destinations are stored!). Destinations make it possible to leave some parts of the tree ``unfinished'' for some time, and to come back to them later when it's their turn to be processed. The implementation provided in table~\ref{table:impl-bfs-tree-traversal}, really implements the slightly more general \mintinline{haskell}`mapAccumBFS`, which traverses a tree in breadth-first order and applies a relabeling function that can depend on a state.
+With storable destinations in our toolbelt, we can implement a solution that is both easy to come up with and efficient, doing only a single traversal pass on the original tree. The main idea is to keep a queue of pairs of a tree to be relabeled and the destination where the the relabeled result is expected (this is where destinations are stored!). Destinations make it possible to leave some parts of the tree ``unfinished'' for some time, and to come back to them later when it's their turn to be processed, as in an imperative implementation. The implementation provided in table~\ref{table:impl-bfs-tree-traversal}, really implements the slightly more general \mintinline{haskell}`mapAccumBFS`, which traverses a tree in breadth-first order and applies a relabeling function that can depend on a state.
 
 \begin{table}[t]
 \small
@@ -593,9 +590,7 @@ The \mintinline{haskell}`withRegion` function is the new addition to the API. It
 
 Ideally, as we detailed in the API, we want \mintinline{haskell}`Incomplete r a b` to contains a \mintinline{haskell}`a` and a \mintinline{haskell}`b`, and let the \mintinline{haskell}`a` free when the \mintinline{haskell}`b` is fully consumed (or linearly transformed into \mintinline{haskell}`Ur c`). So the most straightforward memory representation of an \mintinline{haskell}`Incomplete r a b` would be a pair of an (incomplete) \mintinline{haskell}`a` and a \mintinline{haskell}`b`.
 
-It is also natural for \mintinline{haskell}`alloc` to return an \mintinline{haskell}`Incomplete r a (Dest a)`: it represents a (future) structure of type \mintinline{haskell}`a` with a hole of type \mintinline{haskell}`a`. It's a bit like the identity function: there is nothing more here than an empty memory cell (named named \emph{root receiver}) which the associated destination points to.
-
-% TODO: drawing 1
+It is also natural for \mintinline{haskell}`alloc` to return an \mintinline{haskell}`Incomplete r a (Dest a)`: it represents a (future) structure of type \mintinline{haskell}`a` with a hole of type \mintinline{haskell}`a`. It's a bit like the identity function: there is nothing more here than an empty memory cell (named named \emph{root receiver}) which the associated destination points to, as presented in figure~\ref{fig:schema-alloc}.
 
 If \mintinline{haskell}`Incomplete r a b` is represented by a pair \mintinline{haskell}`(a, b)`, then the root receiver should be the first field of the pair. But the \mintinline{haskell}`Incomplete` object shouldn't be part of the compact region itself, whereas the root of the structure under construction, that will eventually live inside the root receiver, must be in the region (because of the risk of the GC following garbage pointers). Indeed, we want the \mintinline{haskell}`Incomplete` wrapper to be optimized away by the compiler when possible, and to be deallocated as soon as possible, both of which aren't possible if it lives in the region.
 
@@ -609,7 +604,7 @@ indirection object (\mintinline{haskell}`stg_IND` symbol) for the actually-incom
 \end{itemize}
 
 \begin{figure}[t]\centering
-  \includegraphics[width=14cm]{alloc-region.png}
+  \includegraphics[width=12cm]{alloc-region.png}
   \caption{Memory behaviour of \mintinline{haskell}`alloc` and \mintinline{haskell}`intoIncomplete` in the compact region implementation}
   \label{fig:schema-alloc-region}
 \end{figure}
@@ -770,7 +765,7 @@ It would probably be possible to merge the two primops into a two-stage one (wit
 
 \TODO{Write this section?}
 
-\section{Evaluating performance of destination-passing style programming}
+\section{Evaluating performance of destination-passing style programming}\label{sec:benchmark}
 
 \subsection{Benchmarking methodology}
 
@@ -817,7 +812,7 @@ So for each program, we also benchmarked an alternative naive version that uses 
 
 \section{Full implementation of the S-expression parser}\label{ann:parse-s-expr}
 
-\begin{table}[t]
+\begin{table}[H]
 \small
 \begin{minted}[frame=single,framesep=10pt,linenos]{haskell}
 parseSExpr :: ByteString → Int → Either Error SExpr
@@ -859,7 +854,7 @@ parseSString bs i escape acc = case bs !? i of
 \label{table:impl-sexpr-parser-without-dest}
 \end{table}
 
-\begin{table}[t]
+\begin{table}[H]
 \small
 \begin{minted}[frame=single,framesep=10pt,linenos,escapeinside=°°]{haskell}
 parseSExprDPS :: ByteString → Int → Dest SExpr ⊸ Either Error Int
