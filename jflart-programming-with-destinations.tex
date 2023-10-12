@@ -190,9 +190,38 @@ toList i = fromIncomplete_' (i <&> \dt → fill @'[] dt)
 \end{figure}
 
 \begin{itemize}
-  \item \mintinline{haskell}`alloc` returns a \mintinline{haskell}`DList a` which is exactly an \mintinline{haskell}`Incomplete [a] (Dest [a])` structure as shown in figure~\ref{fig:schema-alloc}. There is no data there yet; so the list that will be fed in the \mintinline{haskell}`Dest [a]` is exactly the list in that the \mintinline{haskell}`Incomplete` will hold. This is highly similar to the \mintinline{haskell}`id` function which represents the empty destination list in the function encoding;
-  \item \mintinline{haskell}`append` fills the the hole at the end of the list \mintinline{haskell}`dl` with a new \emph{cons} cell, using \mintinline{haskell}`fill @'(:)`, whose individual behavior is presented in figure~\ref{fig:schema-fillCons}. The head of that cell \mintinline{haskell}`dh` is filled with the value to append using \mintinline{haskell}`fillLeaf`, whose behavior is presented in figure\ref{fig:schema-fillLeaf}. The remaining hole of the new \emph{cons} cell, represented by \mintinline{haskell}`dt :: Dest [a]`, is the hole of the resulting difference list, as shown in figure~\ref{fig:schema-dlist-append} which illustrates the implementation of \mintinline{haskell}`append`;
-  \item \mintinline{haskell}`concat` calls \mintinline{haskell}`fillComp` (whose individual behavior is presented in figure~\ref{fig:schema-fillComp}), which fills the destination of the first difference list \mintinline{haskell}`i1` with the root of the second difference list\mintinline{haskell}`i2`. The resulting \mintinline{haskell}`Incomplete` object hence has the same root as the first list, holds the elements of both lists, and has the hole of the second list at the end, as one can see in figure~\ref{fig:schema-dlist-concat}. Memory-wise, \mintinline{haskell}`concat` will just write the address of the root of the second list into the hole of the first one; no move is required.
+  \item \mintinline{haskell}`alloc` returns a
+    \mintinline{haskell}`DList a` which is exactly an
+    \mintinline{haskell}`Incomplete [a] (Dest [a])` structure as
+    depicted in Figure~\ref{fig:schema-alloc}. There is no data
+    there yet and the list that will be fed in the
+    \mintinline{haskell}`Dest [a]` is exactly the list that the
+    resulting \mintinline{haskell}`Incomplete` will hold. This is
+    highly similar to the \mintinline{haskell}`id` function which
+    represents the empty destination list in the function encoding;
+    
+
+  \item \mintinline{haskell}`append` adds an element at the tail
+    position of a difference list. For this, it first uses
+    \mintinline{haskell}`fill @'(:)` (whose individual behavior is presented in figure~\ref{fig:schema-fillCons}) to fill the hole at the end of the list represented by 
+    \mintinline{haskell}`d :: Dest [a]` with a new hollow \emph{cons}
+    cell with two new holes pointed by \mintinline{haskell}`(dh :: Dest a, dt :: Dest [a])`, as illustrated in figure~\ref{fig:schema-dlist-append}. Then,
+    \mintinline{haskell}`fillLeaf` (whose individual behavior is presented in figure~\ref{fig:schema-fillLeaf}) fills the hole represented by
+    \mintinline{haskell}`dh` with the value
+    of type \mintinline{haskell}`a`
+    to append. The hole of the resulting difference list is the one pointed by \mintinline{haskell}`dt :: Dest [a]` which hasn't been filled yet.
+
+  \item \mintinline{haskell}`concat` concates two difference lists,
+    \mintinline{haskell}`i1` and list \mintinline{haskell}`i2`, by
+    using \mintinline{haskell}`fillComp` (whose individual behavior is presented in figure~\ref{fig:schema-fillComp}) to fill the destination \mintinline{haskell}`dt1`
+    of the first difference list \mintinline{haskell}`i1` with the
+    root of the second difference list\mintinline{haskell}`i2`. The resulting \mintinline{haskell}`Incomplete`
+    object hence has the same root as the first list, holds the
+    elements of both lists, and inherits the hole of the second list as shown in figure~\ref{fig:schema-dlist-concat}. Memory-wise,
+    \mintinline{haskell}`concat` just writes the address of the root
+    of the second list into the hole of the first one; no move is
+    required.
+
   \item \mintinline{haskell}`toList` completes the incomplete structure by plugging \emph{nil} into its hole with \mintinline{haskell}`fill @'[]` (whose individual behavior is presented in figure~\ref{fig:schema-fillNil}) and removes the \mintinline{haskell}`Incomplete` wrapper which is no longer mandatory as the structure is now complete. An overview of the whole operation is presented in figure~\ref{fig:schema-dlist-toList}.
 \end{itemize}
 
