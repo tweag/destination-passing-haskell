@@ -79,15 +79,15 @@ Using destinations as a way of allocating and building functional data structure
 
 Section~\ref{sec:motivating-examples} of this paper presents three common problems which benefit greatly from a DPS-based implementation --- for either a performance or expressiveness reason. Section~\ref{sec:api} focuses on the design of a type-safe API to handle destinations in a language equipped with linear types. Then, section~\ref{sec:implementation} details how we tackled the implementation of the DPS API with/inside GHC, and the couple of challenges that arose. Finally, section~\ref{sec:benchmark} presents benchmarks for the various implementations shown in section~\ref{sec:motivating-examples} as well as implementations of the \mintinline{haskell}`map` function based on destinations.
 
-% TODO: Linear constraints
-%TODO: conceptuellement simple, mais beaucoup d'obstacles techniques pour rendre ça possible.
-% TODO GHC where purity is enforced
-% TODO Also because it has good support for linear type discipline
-% TODO Linear types
-% TODO Destinations
-% TODO Compact regions
-% TODO strict lazy haskell
-% TODO <&>
+\TODO{Linear constraints}\\
+\TODO{conceptuellement simple, mais beaucoup d'obstacles techniques pour rendre ça possible.}\\
+\TODO{GHC where purity is enforced}\\
+\TODO{Also because it has good support for linear type discipline}\\
+\TODO{Linear types}\\
+\TODO{Destinations}\\
+\TODO{Compact regions}\\
+\TODO{strict lazy haskell}\\
+\TODO{Expliquer \mintinline{haskell}`<&>`}\\
 
 \section{Motivating examples for destination-passing style programming}\label{sec:motivating-examples}
 
@@ -361,7 +361,7 @@ It is important to note that destinations allow to reverse the natural order in 
 
 Thanks to that new implementation which is barely longer (in terms of lines of code) than the naive one, the program runs almost twice as fast, mostly because garbage-collection time goes to almost zero. The detailed benchmark is available in section~\ref{ssec:benchmark-parser}.
 
-% TODO: parler de map TR ?
+\TODO{: parler de map TR ?}\\
 
 \section{API Design}\label{sec:api}
 
@@ -613,12 +613,7 @@ The implementation of \mintinline{haskell}`fromIncomplete` and \mintinline{haske
 
 \subsection{Deriving \texttt{fill} for all constructors with \texttt{Generics}}
 
-% TODO: Notes from Arnaud's first pass
-% - Talk about implementation before that paragraph
-% - Theoretically, one function fillCtor per constructor Ctor, how to implement an infinity of functions?
-% - The constructor must be known statically
-% - Explain memory representation, especially unboxed fields and how that impacts fill
-% - Considerations about inlining, e.g. why we used Region r constraint instead of storing the necessary RegionInfo into Dest objects
+\TODO{Notes from Arnaud's first pass : / Theoretically, one function fillCtor per constructor Ctor, how to implement an infinity of functions? / The constructor must be known statically}\\
 
 As it has been said before, the action of \mintinline{haskell}`fill @lCtor @r @a` is to allocate a new hollow constructor \mintinline{haskell}`Ctor _ :: a` in the region, and fill a hole represented by a destination of type \mintinline{haskell}`Dest r a` with its address. Because the constructor is hollow (i.e. its fields haven't been initialized), \mintinline{haskell}`fill` should also return destination objects pointing to these incomplete fields a.k.a. holes.
 
@@ -775,38 +770,36 @@ With DPS versions of the programs, the result is stored in compact regions, whic
 
 However, one might argue that for some programs (e.g. \mintinline{haskell}`map` for lists or \mintinline{haskell}`mapAccumBFS` for trees), having the result of the function stored in a compact region isn't particularly desirable; it might slightly benefits some use-cases and might be a bit worse for others. As a result, it wouldn't be fair to always incur the cost of the copy into the compact region (both time-wise and memory-wise) to all the naive versions of the programs.
 
-So for each program, we also benchmarked an alternative naive version that uses \mintinline{haskell}`Control.DeepSeq.force` to fully evaluate the result into normal form, which stays in the garbage-collected heap (no copy to a compact region). That being said, when the goal is to fully evaluate a result, \mintinline{haskell}`Control.DeepSeq.force` is often slower than just copying the result into a compact region (which operates the forcing more natively). But at least, memory usage is not inflated by the copy into the region.
+So for each program, we also benchmarked an alternative naive version that uses \mintinline{haskell}`Control.DeepSeq.force` to fully evaluate the result into normal form, which stays in the garbage-collected heap (no copy to a compact region). That way, memory usage is not inflated by the copy into the region. We use the benchmark results with \mintinline{haskell}`Control.DeepSeq.force` for naive implementations in the figures when this is to their advantage (and when being in a compact region is not particularly desirable). Such results are denoted with a star (*) at the end of the implementation name.
 
-\begin{itemize}
-\item Three modes (-T, -s, -p)
-\end{itemize}
+\subsection{Performance of DList}
 
-\subsection{Performance of map implementation (in a strict context)}
-
-\begin{itemize}
-\item How this is important for Ocaml \\\TODO{Tail modulo cons}
-\end{itemize}
-
-% TODO: cite tail modulo cons
-
-\subsection{Performance of the SExpr parser}
+\TODO{Insert table}
 
 \subsection{Performance of BFS Tree traversal}\label{ssec:benchmark-parser}
 
-\subsection{Qualitative evaluation of destination code VS naive code}
+\TODO{Insert table}
 
-\begin{itemize}
-\item TODO: implement a naive implement of functional mapMBFS
-\item \end{itemize}
+\subsection{Performance of the SExpr parser}
 
-\section{Conclusion and related work}
-\begin{itemize}
-\item Why it's an improvement over Minamide
+\TODO{Insert table}
 
-\item Lifting the non-linear restriction for elements stored in dest-allocated structures (= requires more theoretical work)
+\subsection{Performance of map implementation}
 
-\item Using destinations in different contexts than compact regions (normal GC heap, other kinds of chunk-allocated memory)
-\end{itemize}
+\TODO{Insert table}\\
+\TODO{How this is important for Ocaml}\\
+\TODO{cite Tail modulo cons}
+
+
+\section{Related work and future developments}
+
+\TODO{Why it's an improvement over Minamide}\\
+\TODO{Lifting the non-linear restriction for elements stored in dest-allocated structures (= requires more theoretical work}\\
+\TODO{Using destinations in different contexts than compact regions (normal GC heap, other kinds of chunk-allocated memory}\\
+
+\section{Conclusion}
+
+\TODO{Write conclusion}
 
 \appendix
 
