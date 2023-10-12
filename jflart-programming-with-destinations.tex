@@ -225,7 +225,7 @@ toList i = fromIncomplete_' (i <&> \dt → fill @'[] dt)
   \item \mintinline{haskell}`toList` completes the incomplete structure by plugging \emph{nil} into its hole with \mintinline{haskell}`fill @'[]` (whose individual behavior is presented in figure~\ref{fig:schema-fillNil}) and removes the \mintinline{haskell}`Incomplete` wrapper which is no longer mandatory as the structure is now complete. An overview of the whole operation is presented in figure~\ref{fig:schema-dlist-toList}.
 \end{itemize}
 
-This simplified API for difference lists still lacks some linearity requirements to make it write-once/immutable. In particular, the result of \mintinline{haskell}`alloc` should be used linearly but this isn't enforced by this API, and as a result, one could fill the embedded destination twice. Linearity concerns will be addressed in Section~\ref{ssec:api-linearity}.
+This simplified API for difference lists still lacks some linearity requirements to make it write-once/immutable. In particular, the result of \mintinline{haskell}`alloc` should be used linearly but this isn't enforced by this API, and as a result, one could fill the embedded destination twice. Linearity concerns will be addressed in section~\ref{ssec:api-linearity}.
 
 That being said, thanks to destination-style programming, not only we can express programs and functions whose implementation is closer to their intended memory behaviour (here, implementing data structures with holes), but we can also get important performance improvements too. \TODO{one sentence about the benchmark results compared to the function encoding}
 \TODO{There should be an explanation in this section about why destinations have linearity requirement}
@@ -288,17 +288,25 @@ With this example, we show how destinations can be used even in a non-linear set
 
 \subsection{Deserializing, lifetime, and garbage collection}\label{ssec:parser-sexpr}
 
-In client-server applications, the following pattern is very frequent: the server receives a request from a client with a serialized payload, the server then deserializes the payload, runs some code, and respond to the request. Most often, the deserialized payload is kept alive for the entirety of the request handling. In a garbage collected language, there's a real cost to this: for the entire duration of the request, the garbage collector (GC) will traverse the deserialized payload again and again, even though we know that it doesn't need to.
+In client-server applications, the following pattern is very frequent: the server receives a request from a client with a serialized payload, the server then deserializes the payload, runs some code, and respond to the request. Most often, the deserialized payload is kept alive for the entirety of the request handling. In a garbage collected language, there's a real cost to this: for the entire duration of the request, the garbage collector (GC) will traverse the deserialized payload again and again. We know that, in fact, the GC doesn't need to follow all these internal pointers, because the lifetimes of the heap objects in the payload are highly correlated: they are either all live or all dead.
 
-As a result, it can be highly desirable to consider the large data tree as a single heap object with a single lifetime for all its nodes. If the tree is stored in a delimited memory area (with a start address and end address known by the GC), it becomes easy for the GC to check whether there is an object that reference a part of the tree just by checking the boundaries of the area in which the tree lives. Then the tree can be discarded when there is no reference pointing to its associated memory area. Using this technique, that has first been implemented for haskell in~\cite{yang_efficient_2015} under the name of \emph{compact regions}, some nodes will stay in memory for a bit longer than they should in exchange for huge garbage collection saving, as the GC no longer have to traverse the tree at all. In a way, compact regions allows for an efficient longer-lived memory storage solution compared to the garbage-collected heap which works very well for data that will become unused after one or two GC cycles.
+Instead, we'd rather consider the deserialized payload as a single heap object, which doesn't need to be traversed, and is freed as a block. GHC supports this use-case with a feature named \emph{compact regions}~\cite{yang_efficient_2015}. Compact regions contain normal heap objects, but the GC never follows pointers into a compact region. The flipside is that a compact region can only be collected when all of the objects it contains are dead.
 
-Compact regions are supported by GHC (the main Haskell compiler), but to this day there is no way to directly deserialize data into a compact region. Instead, the deserialization will first create a data structure in the garbage-collected heap, which can then be copied into the compact region (and removed from the garbage-collected heap by the next GC cycle). This is still useful in the long run for a program, because the GC will only go through the tree one more time after it has been copied to the compact region (during which it will detect that all nodes are no longer used), and never after that. Nonetheless, it would be even better to directly deserialize the input data into a compact region, and eliminate the unnecessary copy and GC load that happen because a couple of GC cycles will take place during deserialization itself (especially if the input data is large).
+The main API function for compact region is \mintinline{haskell}`compact :: a → a`, which takes an arbitrary value and copies it in a compact region. For our use-case, we can have
 
-As it will be detailed in section~\ref{sec:implementation}, compact regions have been chosen to back the implementation of DPS in Haskell, mostly because they provide more freedom to do low-level memory operations without interfering with the GC. Because of that, the current implementation of destination-passing style Haskell gives a way to build structures directly into compact regions, bypassing the garbage-collected heap entirely, as we were looking to do! Compact regions also enforce strictness (unlike Haskell's default laziness), which is quite useful for a parser, as one would probably like to catch all potential errors in the input document at the beginning of the execution.
+{\small
+\begin{minted}{haskell}
+  let deserialized_payload = compact (deserialize payload)
+\end{minted}
+}
 
-\medskip
+Then the internal pointers of \mintinline{haskell}`deserialized_payload`, will indeed never be followed by the GC, and the entirety \mintinline{haskell}`deserialized_payload` will be collected at the same time.
 
-We'll show here how a simple parser for S-expressions can be transformed into one using destinations for greater performance. S-expressions are parenthesized lists whose elements are just separated by spaces. These elements can be of several types: int, string, symbol (a textual token, with no quotes around it, unlike a string), or a list of other S-expressions.
+However, we are allocating two copies of the deserialized payload: one in the regular GC heap, and one in the compact region. This is wasteful, it would be much better to be able to allocate directly in the compact region. It can be done with destinations.
+
+In fact, as I'll explain in section~\ref{sec:implementation}, my current implementation of DPS in Haskell is backed by compact regions. Compact regions are conveninent because they provide more freedom to do low-level memory operations without interfering with the GC. Compact regions also enforce strictness (unlike Haskell's default laziness), which is quite useful for a parser, as one would probably like to catch all potential errors in the input document at the beginning of the execution.\TODO{Arnaud: I'm not sure about the comment on strictness. Laziness is also useful to parsers at any rate, so it's not a clear win. I realise that you want to talk about the strictness at some point. Probably not here though.}
+
+Let's see how a simple parser for S-expressions can be transformed into one using destinations for greater performance. S-expressions are parenthesized lists whose elements are just separated by spaces. These elements can be of several types: int, string, symbol (a textual token, with no quotes around it, unlike a string), or a list of other S-expressions.
 
 Parsing a S-expression can be done concisely with three mutually recursive functions:
 \begin{itemize}
@@ -354,7 +362,7 @@ Let's see what changed compared to the naive implementation:
 
 It is important to note that destinations allow to reverse the natural order in which a structure is built. For a list, the natural operation in functional programming languages is \emph{prepend}/\mintinline{haskell}`(:)`, which adds an element at the front of an existing list (bottom-up approach). Thanks to destinations, it's possible to build a list starting from an element which will stay at the head of the it, and add new elements towards the tail of the list (top-down approach, with \emph{append}/\mintinline{haskell}`fill @'(:)`). Of course, it is possible to mix both approaches, thanks to \mintinline{haskell}`fillComp`/\mintinline{haskell}`fillLeaf`.
 
-Thanks to that new implementation which is barely longer (in terms of lines of code) than the naive one, the program runs almost twice as fast, mostly because garbage-collection time goes to almost zero. The detailed benchmark is available in subsection~\ref{ssec:benchmark-parser}.
+Thanks to that new implementation which is barely longer (in terms of lines of code) than the naive one, the program runs almost twice as fast, mostly because garbage-collection time goes to almost zero. The detailed benchmark is available in section~\ref{ssec:benchmark-parser}.
 
 % TODO: parler de map TR ?
 
