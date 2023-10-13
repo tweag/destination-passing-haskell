@@ -27,7 +27,7 @@
 
 % Affiliations des auteurs
 \affil[1]{INRIA/LORIA, Vand\oe{}uvre-lès-Nancy, 54500, France}
-\affil[2]{TWEAG, Paris, 75012, France}
+\affil[1]{TWEAG, Paris, 75012, France}
 
 % Une commande définie par l'utilisateur
 \newcommand{\cmd}[1]{\texttt{\textbackslash {#1}}}
@@ -67,35 +67,42 @@ Safety proofs for the API are not provided in this article though, and will be t
 
 \section{Introduction}
 
-Destination-passing style (DPS) programming takes its source in the early days of imperative languages with manual memory management. In the C programming language, it's quite common for a function not to allocate memory itself for its result, but rather to receive a reference to a memory location where to write its result (often named \emph{out parameter}). In that scheme, the caller of the function is both responsible for allocation and disposal of the cell in which the value will live. This is exactly what DPS programming is about: take control from the callee back to the caller about memory management.
+Destination-passing style (DPS) programming takes its source in the early days of imperative languages with manual memory management. In the C programming language, it's quite common for a function not to allocate memory itself for its result, but rather to receive a reference to a memory location where to write its result (often named \emph{out parameter}). In that scheme, the caller of the function has control over allocation and disposal of memory for the function result, and thus gets to choose where the latter will be written.
 
-The goal of DPS programming is to allow a bit of imperative techniques in a pure functional setting when performance really matters; but we don't want to import all the issues related to manual memory handling. Hence, in this paper, we design a memory API whose safety is ensured through a linear type discipline. Linear types systems are based on Girard's Linear logic~\cite{girard_linear_1995}, and introduce the concept of \emph{linearity}: one can express through types that a function will \emph{consume} its argument exactly once given the function result is \emph{consumed} exactly once too. Linearity helps to manage resources that one should not forget to \emph{consume} (e.g. forgetting to close a file or to initialize a memory cell with a value), but also that shouldn't be reused several times (e.g. a unique token in an API).
+DPS programming is an adaptation of this idea for functional languages, based on two core concepts: having arbitrary data structures with \emph{holes} --- that is to say, memory cells that haven't been filled yet --- and \emph{destinations}, which are references to the location of those holes. A destination can be passed around, as first-class object of the language (unlike holes), and it allows remote action on one hole of a structure: when one \emph{fills} the destination with a value, that value is in fact written in the associated hole. Because structures are allowed to have holes, they can be built from the root down, rather than from the leaves up. Indeed, children of a parent node no longer have to be specified when the parent node is created; they can be left empty (which leaves holes in the parent node), and added later through destinations to those holes. It is thus possible to write very natural solutions to problems for which the usual functional bottom-up building approach is ill-fitting. In addition to better expressiveness, DPS programming can also lead to better time and/or space performance for critical parts of a program.
 
-The Haskell programming language is equipped with support for linear types through its main compiler, \emph{GHC}, since version 9.0.1~\cite{bernardy_linear_2018}. It also supports \emph{compact regions}~\cite{yang_efficient_2015}, which are very practical to implement support for DPS programming in a language with a copying garbage collector as we will detail in subsection~\ref{ssec:impl-compact-regions}. These are the main reasons why Haskell has been chosen as the basis for this implementation.
+That being said, DPS programming is not about giving unlimited manual control over memory or using mutations without restrictions. The existence of a destination is directly linked to the existence of an accompanying hole: we say that a destination is \emph{consumed} when it has already been used to write something in its associated hole. It must not be reused after that point, to ensure immutability and prevent a range of memory errors.
 
-DPS programming is based on the concept of \emph{destination}, which can be seen as a reference or pointer to the location of a memory cell which hasn't been filled yet. Such a memory cell is named a \emph{hole}. The existence of a destination is directly linked to the existence of an accompanying hole; we say that a destination is \emph{filled} or \emph{consumed} when one reads the address carried by the destination and writes something in the associated hole. The destination must ceased to exist as soon as the hole has been filled. As one can imagine, destinations are resources that have to be managed linearly; in other terms, we must leverage the linear type system to ensure that every destination is consumed exactly once.
+In this paper, we design a destination API whose memory safety (write-once model) is ensured through a linear type discipline. Linear types systems are based on Girard's Linear logic~\cite{girard_linear_1995}, and introduce the concept of \emph{linearity}: one can express through types that a function will \emph{consume} its argument exactly once given the function result is \emph{consumed} exactly once too. Linearity helps to manage resources --- such as destinations --- that one should not forget to \emph{consume} (e.g. forgetting to fill a hole before reading a structure), but also that shouldn't be reused several times.
 
-Using destinations as a way of allocating and building functional data structures can lead to better time and/or space performance for critical parts of a program. But more than just a performance improvement, destinations can also increase the expressiveness of an immutable functional language, as some algorithms --- such as breadth-first tree traversal presented in section~\ref{ssec:bf-tree-traversal} --- are hard to express in a pure functional manner but very natural to implement in an imperative context.
+The Haskell programming language is equipped with support for linear types through its main compiler, \emph{GHC}, since version 9.0.1~\cite{bernardy_linear_2018}. But Haskell is also a \emph{pure} functional language, which means that side effects are only safe to produce inside monadic functions. This led us to set a slightly more refined goal: we wanted to hide impure memory effects related to destinations behind a \emph{pure} Haskell API, and make the whole safe through the linear type discipline. Although the theoretical proofs of type safety haven't been made yet, the early practical results seem to indicate that we achieved that goal despite the technical challenges that arose. The purity of the final API makes it very practical to partially adopt DPS programming in a codebase (compared to a monadic API which would be more ``contaminating'').
 
 Section~\ref{sec:motivating-examples} of this paper presents three common problems which benefit greatly from a DPS-based implementation --- for either a performance or expressiveness reason. Section~\ref{sec:api} focuses on the design of a type-safe API to handle destinations in a language equipped with linear types. Then, section~\ref{sec:implementation} details how we tackled the implementation of the DPS API with/inside GHC, and the couple of challenges that arose. Finally, section~\ref{sec:benchmark} presents benchmarks for the various implementations shown in section~\ref{sec:motivating-examples} as well as implementations of the \mintinline{haskell}`map` function based on destinations.
 
-\TODO{Linear constraints}\\
-\TODO{conceptuellement simple, mais beaucoup d'obstacles techniques pour rendre ça possible.}\\
-\TODO{GHC where purity is enforced}\\
-\TODO{Also because it has good support for linear type discipline}\\
-\TODO{Linear types}\\
-\TODO{Destinations}\\
-\TODO{Compact regions}\\
-\TODO{strict lazy haskell}\\
-\TODO{Expliquer \mintinline{haskell}`<&>`}\\
+\TODO{[] Linear constraints}\\
+\TODO{[] Link repo?}\\
+
+\subsection{Preliminary notions about linear types and destinations in Haskell}\label{ssec:intro-linearity}
+
+Linear Haskell~\cite{bernardy_linear_2018} introduces the linear function arrow, \mintinline{haskell}`a ⊸ b`, that guarantees that the argument of the function will be consumed exactly once when the result of the function is consumed exactly once.
+
+A value is said to be \emph{consumed} once when it is pattern-matched on and its sub-components are consumed once; or when it is passed as an argument to a linear function whose result is consumed once. A function is said to be \emph{consumed} once when it is applied to an argument and when the result is consumed exactly once too. Linearity on functions arrows creates a chain of dependency/trust about consumption of values, which is usually bootstrapped by using the scope function trick, as detailed in section~\ref{ssec:api-linearity}.
+
+Linear Haskell introduces a wrapper named \mintinline{haskell}`Ur` that serves to indicate that a value in a linear context doesn't have to be used linearly. The type \mintinline{haskell}`Ur a` is equivalent to $!a$ in linear logic, and there is an equivalence between \mintinline{haskell}`Ur a ⊸ b` and \mintinline{haskell}`a → b`.
+
+The value \mintinline{haskell}`(x, y)` is said to be consumed linearly only when both \mintinline{haskell}`x` and \mintinline{haskell}`y` are consumed exactly once; whereas \mintinline{haskell}`Ur x` is considered to be consumed once as long as one pattern-match on it, even though \mintinline{haskell}`x` is not consumed exactly once (it can be consumed several times or none at all). Conversely, if \mintinline{haskell}`x` and \mintinline{haskell}`y` are said to be used linearly when one constructs \mintinline{haskell}`(x, y)`, \mintinline{haskell}`x` is not considered as consumed linearly when one builds \mintinline{haskell}`Ur x`. As a result, only values already wrapped in \mintinline{haskell}`Ur` or coming from the left of a non-linear function arrow \mintinline{haskell}`→` can be put in another \mintinline{haskell}`Ur` without breaking linearity. The only exceptions are types which implement the \mintinline{haskell}`Movable` typeclass such as \mintinline{haskell}`Int` or \mintinline{haskell}`()`. That typeclass provides \mintinline{haskell}`move :: a ⊸ Ur a` so a value can escape from linearity restrictions.
+
+Destinations are represented by the type \mintinline{haskell}`Dest a`, where \mintinline{haskell}`a` stands for the type of the associated hole. \mintinline{haskell}`Dest`s are meant to be managed linearly, and thus doesn't implement \mintinline{haskell}`Movable`.
+
+\paragraph{Operators}
+
+Two uncommon operators are often used in the rest of this article:
+\begin{itemize}
+  \item \mintinline{haskell}`(<&>) :: Functor f => f a ⊸ (a ⊸ b) ⊸ f b` is the same as \mintinline{haskell}`fmap` with the order of the arguments flipped: \mintinline{haskell}`i <&> (\d -> f d) = fmap (\d -> f d) i`. It will be used to map over the destinations \mintinline{haskell}`d` associated to an incomplete data structure \mintinline{haskell}`i`;
+  \item \mintinline{haskell}`(;;) :: () ⊸ b ⊸ b` is used to chain a linear operation returning \mintinline{haskell}`()` with one returning a value of type \mintinline{haskell}`b` without breaking linearity.
+\end{itemize}
 
 \section{Motivating examples for destination-passing style programming}\label{sec:motivating-examples}
-
-
-
-
-
-It's time to see why DPS programming can be useful even in a pure functional context such as Haskell.
 
 \subsection{Efficient difference lists}
 
@@ -114,7 +121,7 @@ With the function encoding, it isn't possible to read the list until a last elem
 The implementation of operations on destination-backed difference lists are presented in table~\ref{table:impl-dlist}.
 \begin{table}[t]
 \small
-\begin{minted}[frame=single,framesep=10pt,linenos]{haskell}
+\begin{minted}[linenos]{haskell}
 data [a] -- built-in
   = []        -- nil constructor
   | (:) a [a] -- cons constructor
@@ -175,7 +182,7 @@ toList i = fromIncomplete_' (i <&> \dt → fill @'[] dt)
 \end{figure}
 
 \begin{figure}[t]\centering
-  \includegraphics[width=14cm]{dlist-concat.png}
+  \includegraphics[width=13.5cm]{dlist-concat.png}
   \caption{Memory behavior of \mintinline{haskell}`concat i1 i2`}
   \label{fig:schema-dlist-concat}
 \end{figure}
@@ -224,7 +231,7 @@ toList i = fromIncomplete_' (i <&> \dt → fill @'[] dt)
 
 This simplified API for difference lists still lacks some linearity requirements to make it write-once/immutable. In particular, the result of \mintinline{haskell}`alloc` should be used linearly but this isn't enforced by this API, and as a result, one could fill the embedded destination twice. Linearity concerns will be addressed in section~\ref{ssec:api-linearity}.
 
-That being said, thanks to destination-style programming, not only we can express programs and functions whose implementation is closer to their intended memory behaviour (here, implementing data structures with holes), but we can also get important performance improvements too. \TODO{one sentence about the benchmark results compared to the function encoding}
+Thanks to destinations, we can write functions whose implementation is closer to their intended memory behavior (here, implementing data structures with holes), and get comparable or sometimes better performance than the implementations based on pure functional techniques. A performance report is available in subsection~\ref{ssec:benchmark-dlist}.
 \TODO{There should be an explanation in this section about why destinations have linearity requirement}
 
 \subsection{Breadth-first tree traversal}\label{ssec:bf-tree-traversal}
@@ -248,7 +255,7 @@ With storable destinations in our toolbelt, we can implement a solution that is 
 
 \begin{table}[t]
 \small
-\begin{minted}[frame=single,framesep=10pt,linenos]{haskell}
+\begin{minted}[linenos]{haskell}
 data Tree a = Nil | Node a (Tree a) (Tree a)
 
 relabelBFS :: Tree a → Tree Int
@@ -276,10 +283,7 @@ mapAccumBFS f s0 tree =
 
 Note that the signature of \mintinline{haskell}`mapAccumBFS` doesn't involve linear types. Linear types only appear in the inner loop \mintinline{haskell}`go`, which manipulates destinations. Linearity enforces the fact that every destination ever put in the queue is eventually filled at some point, which guarantees that the output tree is complete after the function has run, and thus can be made readable.
 
-\TODO{Revisit the two paragraphs on Ur, below, when we have an introduction}
-Because the state-transforming function \mintinline{haskell}`s → a → (s, b)` is non-linear, the leaves of the original tree (that are stored together with destinations in the queue) won't be consumed in a linear fashion. However, as we said, destinations must be all consumed linearly, and for that to hold, their container must be consumed linearly too. So we need a trick to indicate that one sub-part of the queue is allowed to be consumed non-linearly while the rest of the structure will appeared to be consumed linearly.
-
-This is exactly the role that the \mintinline{haskell}`Ur` wrapper plays. A \mintinline{haskell}`Ur a` will appear to be consumed linearly even if its inner value of type \mintinline{haskell}`a` is consumed non-linearly. But only values coming from a non-linear source can be put wrapped in \mintinline{haskell}`Ur`. More precisely, \mintinline{haskell}`Ur` delimitates areas for non-linear values inside structures that are meant to be handled linearly, and only values already wrapped in \mintinline{haskell}`Ur` or coming from the left of a non-linear function arrow \mintinline{haskell}`→` can be put in another \mintinline{haskell}`Ur`. Destinations always appear on the left of linear function arrows \mintinline{haskell}`⊸`, so they couldn't be wrapped in \mintinline{haskell}`Ur` in an attempt to escape the API safety.
+Because the state-transforming function \mintinline{haskell}`s → a → (s, b)` is non-linear, the leaves of the original tree (that are stored together with destinations in the queue) won't be consumed in a linear fashion. However, as we said, destinations must be all consumed linearly, and for that to hold, the container they are put in must be consumed linearly too. So we wrap the input tree in \mintinline{haskell}`Ur`. As detailed in subsection~\ref{ssec:intro-linearity}, thanks to \mintinline{haskell}`Ur`, queue pairs will appeared to be consumed linearly even though the input tree leaves aren't. 
 
 With this example, we show how destinations can be used even in a non-linear setting in order to improve the expressiveness of the base language. This more natural and less convoluted implementation of breadth-first traversal also presents great performance gains compared to other functional implementations. \TODO{Insert benchmark}
 
@@ -516,7 +520,7 @@ The concept of \mintinline{haskell}`fill :: ∀ lCtor a. Dest a ⊸ DestsOf lCto
 
 \begin{table}[t]
 \small
-\begin{minted}[frame=single,framesep=10pt,linenos,escapeinside=°°]{haskell}
+\begin{minted}[linenos,escapeinside=°°]{haskell}
 C :: (f°$_i$°)°$_{i \in 1..n}$° → a
 
 C' :: (f°$_i$°)°$_{i \in 1..n}$° → a
@@ -553,7 +557,7 @@ The forced isolation of each region has a two main consequences:
 
 \begin{table}[t]
 \small
-\begin{minted}[frame=single,framesep=10pt,escapeinside=°°]{haskell}
+\begin{minted}[escapeinside=°°]{haskell}
 type Region r :: Constraint
 °\mnew{withRegion :: ∀ a. (∀ r. Region r ⇒ Token ⊸ Ur a) ⊸ Ur a}°
 
@@ -712,7 +716,7 @@ The gist of this implementation is presented in table~\ref{table:impl-reifyInfoP
 
 \begin{table}[t]
 \small
-\begin{minted}[frame=single,framesep=10pt,linenos]{haskell}
+\begin{minted}[linenos]{haskell}
 case primop of
   [...]
   ReifyStgInfoPtrOp → \_ →  -- we don't care about the function argument (# #)
@@ -772,24 +776,60 @@ However, one might argue that for some programs (e.g. \mintinline{haskell}`map` 
 
 So for each program, we also benchmarked an alternative naive version that uses \mintinline{haskell}`Control.DeepSeq.force` to fully evaluate the result into normal form, which stays in the garbage-collected heap (no copy to a compact region). That way, memory usage is not inflated by the copy into the region. We use the benchmark results with \mintinline{haskell}`Control.DeepSeq.force` for naive implementations in the figures when this is to their advantage (and when being in a compact region is not particularly desirable). Such results are denoted with a star (*) at the end of the implementation name.
 
-\subsection{Performance of DList}
+All implementations are benchmarked against structures of size $2^{10}$, $2^{13}$ and $2^{16}$.
 
-\TODO{Insert table}
+\begin{figure}[t]\centering
+  \includegraphics[width=14cm]{bench-charts.pdf}
+  \caption{Benchmarks ran on AMD EPYC 7401P @ 2.0 GHz (single core, \texttt{-N1 -O2})}
+  \label{fig:bench-charts}
+\end{figure}
 
-\subsection{Performance of BFS Tree traversal}\label{ssec:benchmark-parser}
+\subsection{Concatenating lists and difference lists}\label{ssec:benchmark-dlist}
 
-\TODO{Insert table}
+We compared four implementations:
+\begin{itemize}
+\item \mintinline{haskell}`foldr (++)` where calls to \mintinline{haskell}`(++)` are nested to the right, giving the most optimal context for list concatenation (it should run in $\mathcal{O}(n)$ time)
+\item \mintinline{haskell}`foldl' (++)` which is the worst case for list concatenation, expected to run in $\mathcal{O}(n^2)$ time.
+\item \mintinline[escapeinside=°°]{haskell}`foldl' concat°$\lambda$°` which uses function-backed difference lists, and \mintinline{haskell}`foldl' concatDPS` which uses destination-backed difference lists. Both are expected to run in linear time even if the concat calls are nested to the left.
+\end{itemize}
 
-\subsection{Performance of the SExpr parser}
+We see in part 1 of figure~\ref{fig:bench-charts} that the destination-backed difference lists have a comparable memory use as the two other linear implementations, and a very slight edge for large data sets (5-10\% fewer allocations), in exchange for being quite slower (2-4$\times$ time).
 
-\TODO{Insert table}
 
-\subsection{Performance of map implementation}
+\subsection{Relabeling a tree in a breadth-first fashion}\label{ssec:benchmark-bf-tree-traversal}
 
-\TODO{Insert table}\\
-\TODO{How this is important for Ocaml}\\
+We see in part 2 of figure~\ref{fig:bench-charts} that the destination-based tree traversal is almost one order of magnitude more efficient, both time-wise and memory-wise, compared to the implementation based on \emph{Phases} applicatives presented in~\cite{gibbons_phases_2023}.
+
+\subsection{Parsing S-expressions}\label{ssec:benchmark-parser}
+
+In part 3 of figure~\ref{fig:bench-charts}, we compared the ``naive'' implementation of the S-expression parser (presented in table~\ref{table:impl-sexpr-parser-without-dest}) and the DPS one (presented in table~\ref{table:impl-sexpr-parser-with-dest}) ran against a 15,000-lines-long Lisp file.
+
+It is interesting to see that the DPS version makes about 50\% more allocations than the starred naive version, but uses 10\% less memory at its peak (not shown in the figure), and more importantly, spends 38$\times$ less time in garbage collection (with 6$\times$ less bytes copied by the GC). As a result, the DPS version only takes 0.55-0.65$\times$ the time spent by the naive version, mostly thanks to garbage collection savings. This also indicates that most of the data allocated in the garbage-collected heap by the DPS version just lasts one generation and thus can be discarded very early by the GC, without needing to be copied into the next generation, unlike most nodes allocated by the naive version.
+
+We can also observe in part 3 of figure~\ref{fig:bench-charts} that copying the result of the naive version in a compact region (which can be desirable for future GC savings, as detailed in subsection~\ref{ssec:parser-sexpr}) makes it even longer, and results in even more total allocations than DPS version.
+
+This benchmark is probably the most significant of the paper: it proves that DPS is a viable technique for some real-world use cases, bringing gains that cannot be obtained easily with other approaches in pure functional programming languages.
+
+\subsection{Performance of map implementation}\label{ssec:benchmark-map}
+
+It seemed important to also measure the performance of a \mintinline{haskell}`map` implementation using destinations. In a strict functional language such as OCaml, the choice of implementation for \mintinline{haskell}`map` is crucial as the naive one makes the stack grow linearly with the size of the processed list. A strict tail-recursive version (\mintinline{haskell}`mapTR'`) takes $\mathcal{O}(1)$ space, but it requires an extra $\mathcal{O}(n)$ operation at the end of the processing (reversing the accumulator). 
+
+With destinations, \mintinline{haskell}`map` can be implemented in a tail-recursive fashion without the need for the reverse operation (as the list is built in a top-down approach). It can also be implemented as a fold:
+{\small
+\begin{minted}{haskell}
+append :: Dest [a] ⊸ a → Dest [a]
+append d x = let !(dh, dt) = fill @'(:) d in fillLeaf x dh ;; dt
+
+mapDPS' _ [] d = fill @'[] d
+mapDPS' f (x : xs) d = let !r = f x ; !d' = append d r in mapDPS' f xs d'
+
+mapDPSFold' f l dl = fill @'[] (foldl' (\d x → let !r = f x in append d r) d l)
+\end{minted}
+}
+
+We see in part 4 of figure~\ref{fig:bench-charts} that the destination-based implementations takes 1.5-4$\times$ more time than \mintinline{haskell}`map` and \mintinline{haskell}`mapTR'` (depending on the dataset size), but memory-wise both \mintinline{haskell}`mapDPS'` and \mintinline{haskell}`mapDPSFold'` are more efficient than \mintinline{haskell}`map`; and \mintinline{haskell}`mapDPS'` even manage to make 13\% fewer allocs than \mintinline{haskell}`mapTR'` on the largest dataset.
+
 \TODO{cite Tail modulo cons}
-
 
 \section{Related work and future developments}
 
@@ -807,7 +847,7 @@ So for each program, we also benchmarked an alternative naive version that uses 
 
 \begin{table}[H]
 \small
-\begin{minted}[frame=single,framesep=10pt,linenos]{haskell}
+\begin{minted}[linenos]{haskell}
 parseSExpr :: ByteString → Int → Either Error SExpr
 parseSExpr bs i = case bs !? i of
   Nothing → Left (UnexpectedEOFSExpr i)
@@ -849,7 +889,7 @@ parseSString bs i escape acc = case bs !? i of
 
 \begin{table}[H]
 \small
-\begin{minted}[frame=single,framesep=10pt,linenos,escapeinside=°°]{haskell}
+\begin{minted}[linenos,escapeinside=°°]{haskell}
 parseSExprDPS :: ByteString → Int → Dest SExpr ⊸ Either Error Int
 parseSExprDPS bs i d = case bs !? i of
   Nothing → °\mnew{fillLeaf defaultSExpr d}° ;; Left (UnexpectedEOFSExpr i)
