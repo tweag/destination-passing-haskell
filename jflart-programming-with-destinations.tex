@@ -97,7 +97,7 @@ Destinations are represented by the type \mintinline{haskell}`Dest a`, where \mi
 
 Two uncommon Haskell operators are often used in the rest of this article:
 
-\mintinline{haskell}`(<&>) :: Functor f => f a ⊸ (a ⊸ b) ⊸ f b` is the same as \mintinline{haskell}`fmap` with the order of the arguments flipped: \mintinline{haskell}`i <&> (\d → f d) = fmap (\d → f d) i`. It will be used to map over the destinations \mintinline{haskell}`d` associated to an incomplete data structure \mintinline{haskell}`i`;
+\mintinline{haskell}`(<&>) :: Functor f ⇒ f a ⊸ (a ⊸ b) ⊸ f b` is the same as \mintinline{haskell}`fmap` with the order of the arguments flipped: \mintinline{haskell}`i <&> (\d → f d) = fmap (\d → f d) i`. It will be used to map over the destinations \mintinline{haskell}`d` associated to an incomplete data structure \mintinline{haskell}`i`;
 
 \mintinline{haskell}`(;;) :: () ⊸ b ⊸ b` is used to chain a linear operation returning \mintinline{haskell}`()` with one returning a value of type \mintinline{haskell}`b` without breaking linearity.
 
@@ -624,7 +624,7 @@ If \mintinline{haskell}`Incomplete r a b` is represented by a pair \mintinline{h
 One potential solution is to represent \mintinline{haskell}`Incomplete r a b` by a pair \mintinline{haskell}`(Ur a, b)`. The \mintinline{haskell}`Ur` wrapper is allocated inside the region, and its field of type \mintinline{haskell}`a` is the root receiver. With that approach, the issue of \mintinline{haskell}`alloc` result representation is solved, but every \mintinline{haskell}`Incomplete` wrapper will now allocate a few words in the region (to host the \mintinline{haskell}`Ur` hollow constructor) that won't be collected by the GC until a long time. This makes \mintinline{haskell}`intoIncomplete` quite inefficient memory-wise too, as the \mintinline{haskell}`Ur` wrapper is useless for already complete structures.
 
 The desired outcome is to only allocate a root receiver in the region for actual incomplete structures, and skip that allocation for already complete structures that are turned into an \mintinline{haskell}`Incomplete` object, while preserving a same type for both use-cases. This is made possible by replacing the \mintinline{haskell}`Ur` wrapper inside the \mintinline{haskell}`Incomplete` by an 
-indirection object (\mintinline{haskell}`stg_IND` symbol) for the actually-incomplete case. \mintinline{haskell}`Incomplete r a b` will be represented by a pair \mintinline{haskell}`(a, b)` allocated in the garbage-collected heap, but:
+indirection object (\mintinline{haskell}`stg_IND` label) for the actually-incomplete case. \mintinline{haskell}`Incomplete r a b` will be represented by a pair \mintinline{haskell}`(a, b)` allocated in the garbage-collected heap, but:
 \begin{itemize}
   \item in the pair \mintinline{haskell}`(a, b)` returned by \mintinline{haskell}`alloc`, the \mintinline{haskell}`a` side points to an indirection object (a sort of constructor with one field, whose resulting type \mintinline{haskell}`a` is the same as the field type \mintinline{haskell}`a`), that is allocated in the region, and serve as the root receiver;
   \item in the pair \mintinline{haskell}`(a, b)` returned by \mintinline{haskell}`intoIncomplete`, the \mintinline{haskell}`a` side directly points to the object of type \mintinline{haskell}`a` that has been copied to the region.
@@ -685,7 +685,7 @@ The info table is what defines both the layout and behavior of a heap object. Al
 
 Because the RTS is a static piece of code that is compiled once (for each version of GHC) and then included uniformly --- with no change or customization --- into each program built with that version of GHC, it has no direct way to access the information emitted during the compilation of a program. In other terms, when the RTS is put into use (at runtime), it has no way to inspect the source of the program that it runs, and info table labels have long been replaced by actual pointers so it cannot look for them either. This is rather counterintuitive: one might think at first that the runtime system would have at least as much power and potential knowledge as the compile-time system; but in this particular context, this isn't the case.
 
-\TODO{I don't think the point is made very effectively in this paragraph. Maybe because it's too abstract. Potential idea: mix the explanation with the description of your primops --> Still the case?}
+\TODO{I don't think the point is made very effectively in this paragraph. Maybe because it's too abstract. Potential idea: mix the explanation with the description of your primops -→ Still the case?}
 
 That's why we will need two primitives two properly allocate a hollow constructor heap object:
 
@@ -796,7 +796,7 @@ The internal primop \mintinline{haskell}`reifyInfoPtr#` that we introduced above
 So we added a new type family \mintinline{haskell}`LiftedCtorToSymbol` inside GHC that inspects its (type-level) parameter representing a constructor, resolves it into the associated \mintinline{haskell}`DataCon` structure, and returns a type-level string (kind \mintinline{haskell}`Symbol`) carrying the constructor name:
 {\small
 \begin{minted}[linenos]{haskell}
-matchFamLiftedCtorToSymbol :: [Type] -> Maybe (CoAxiomRule, [Type], Type)
+matchFamLiftedCtorToSymbol :: [Type] → Maybe (CoAxiomRule, [Type], Type)
 matchFamLiftedCtorToSymbol [kind, ty]
   | TyConApp tyCon _ <- ty, Just dataCon <- isPromotedDataCon_maybe tyCon =
       let symbolLit = (mkStrLitTy . occNameFS . occName . getName $ dataCon)
@@ -805,8 +805,8 @@ matchFamLiftedCtorToSymbol tys = Nothing
 
 axLiftedCtorToSymbolDef =
   mkBinAxiom "LiftedCtorToSymbolDef" typeLiftedCtorToSymbolTyCon Just
-    (\case { TyConApp tyCon _ -> isPromotedDataCon_maybe tyCon ; _ -> Nothing })
-    (\_ dataCon -> Just (mkStrLitTy . occNameFS . occName . getName $ dataCon))
+    (\case { TyConApp tyCon _ → isPromotedDataCon_maybe tyCon ; _ → Nothing })
+    (\_ dataCon → Just (mkStrLitTy . occNameFS . occName . getName $ dataCon))
 \end{minted}
 }
 
@@ -851,7 +851,7 @@ We see in part 2 of figure~\ref{fig:bench-charts} that the destination-based tre
 
 In part 3 of figure~\ref{fig:bench-charts}, we compared the ``naive'' implementation of the S-expression parser (see table~\ref{table:impl-sexpr-parser-without-dest}) and the DPS one (see table~\ref{table:impl-sexpr-parser-with-dest}) against a 15,000-lines-long file.
 
-It is interesting to see that the DPS version makes about 50\% more allocations than the starred naive version, but uses 10\% less memory at its peak (not shown in the figure), and more importantly, spends 38$\times$ less time in garbage collection (with 6$\times$ less bytes copied by the GC). As a result, the DPS version only takes 0.55-0.65$\times$ the time spent by the naive versions, thanks to garbage collection savings. This also indicates that most of the data allocated in the garbage-collected heap by the DPS version just lasts one generation and thus can be discarded very early by the GC, without needing to be copied into the next generation, unlike most nodes allocated by the naive version.
+It is interesting to see that the DPS version makes about 50\% more allocations than the starred naive version, but uses 10\% less memory at its peak (not shown in the figure), and more importantly, spends 38$\times$ less time in garbage collection (with 6$\times$ less bytes copied by the GC). As a result, the DPS version only takes 0.55-0.65$\times$ the time spent by the naive versions, thanks to garbage collection savings. This also indicates that most of the data allocated in the garbage-collected heap by the DPS version just lasts one generation and thus can be discarded very early by the GC, without needing to be copied into the next generation, unlike most nodes allocated by the naive versions.
 
 We can also observe in part 3 of figure~\ref{fig:bench-charts} that copying the result of the naive version in a compact region (which can be desirable for future GC savings, as detailed in subsection~\ref{ssec:parser-sexpr}) makes it even longer, and results in even more total allocations than DPS version.
 
@@ -878,7 +878,7 @@ We see in part 4 of figure~\ref{fig:bench-charts} that the destination-based imp
 
 In OCaml, \mintinline{haskell}`mapDPS'` is actually more performant time-wise than \mintinline{haskell}`mapTR'` ($0.5-0.85\times$) even for small lists, as detailed in~\cite{bour_tmc_2021}.
 
-\section{Related work and future developments}
+\section{Related work}
 
 The idea of functional data structures with write-once holes is not new. Minamide already proposed in~\cite{minamide_functional_1998} a variant of $\lambda$-calculus with support for \emph{hole abstractions}, which can be represented in memory by an incomplete structure with one hole and can be composed efficiently with each other (as with \mintinline{haskell}`fillComp` in figure~\ref{fig:schema-dlist-concat}). With such framework, it is fully possible to implement destination-backed difference lists for example.
 
