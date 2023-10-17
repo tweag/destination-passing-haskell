@@ -63,7 +63,7 @@ With the implementation of destinations for Haskell through compact regions we p
 Safety proofs for the API are not provided in this article though, and will be the subject of a future article.
 \end{abstract}
 
-\tableofcontents{}
+%\tableofcontents{}
 
 \TODO{[] Link repo?}\\
 
@@ -85,7 +85,7 @@ Section~\ref{sec:motivating-examples} of this paper presents three common proble
 
 Linear Haskell~\cite{bernardy_linear_2018} introduces the linear function arrow, \mintinline{haskell}`a ⊸ b`, that guarantees that the argument of the function will be consumed exactly once when the result of the function is consumed exactly once. On the other hand, the regular function arrow \mintinline{haskell}`a → b` doesn't guarantee how many times its argument will be consumed when its result is consumed once.
 
-A value is said to be \emph{consumed once} (or \emph{consumed linearly}) when it is pattern-matched on and its sub-components are consumed once; or when it is passed as an argument to a linear function whose result is consumed once. A function is said to be \emph{consumed once} when it is applied to an argument and when the result is consumed exactly once too. Linearity on functions arrows creates a chain of dependency/trust about consumption of values, which is usually bootstrapped by using scope-passing style, as detailed in section~\ref{ssec:api-linearity}.
+A value is said to be \emph{consumed once} (or \emph{consumed linearly}) when it is pattern-matched on and its sub-components are consumed once; or when it is passed as an argument to a linear function whose result is consumed once. A function is said to be \emph{consumed once} when it is applied to an argument and when the result is consumed exactly once too. Linearity on functions arrows creates a chain of dependency/trust about consumption of values, which is usually bootstrapped by using the \emph{scope function} trick, as detailed in section~\ref{ssec:api-linearity}.
 
 Linear Haskell introduces a wrapper named \mintinline{haskell}`Ur` that serves to indicate that a value in a linear context doesn't have to be consumed linearly. The type \mintinline{haskell}`Ur a` is equivalent to $!a$ in linear logic, and there is an equivalence between \mintinline{haskell}`Ur a ⊸ b` and \mintinline{haskell}`a → b`.
 
@@ -112,7 +112,7 @@ In an imperative context, it would be quite easy to concatenate linked lists eff
 
 It isn't possible to do so in an immutable functional context though. Instead, \emph{Difference lists} can be used: they are structures that are fast to convert into lists ($\mathcal{O}(1)$ amortized) and tend to emulate the idea of having a mutable (here, write-once) last \emph{cons} cell. Usually, a difference list \mintinline{haskell}`[x1, ..., xn, ?]` is encoded by a function taking a last element \mintinline{haskell}`ys` of type \mintinline{haskell}`[a]` and returning \mintinline{haskell}`x1 : ... : xn : ys` (having type \mintinline{haskell}`[a]` too).
 
-With such representation, concatenation is just function composition: \mintinline{haskell}`f1 <> f2 = f1 . f2`, and we have \mintinline{haskell}`mempty = id`\footnote{\mintinline{haskell}`mempty` and \mintinline{haskell}`<>` are the usual notations for neutral element and binary operation of a monoid in Haskell}, \mintinline{haskell}`toList f = f []` and \mintinline{haskell}`fromList xs = \ys → xs ++ ys`.
+With such representation, concatenation is function composition: \mintinline{haskell}`f1 <> f2 = f1 . f2`, and we have \mintinline{haskell}`mempty = id`\footnote{\mintinline{haskell}`mempty` and \mintinline{haskell}`<>` are the usual notations for neutral element and binary operation of a monoid in Haskell}, \mintinline{haskell}`toList f = f []` and \mintinline{haskell}`fromList xs = \ys → xs ++ ys`.
 
 In DPS, instead of encoding the concept of a write-once hole with a function, we can represent the hole as a first-class object with a \emph{destination}. A difference list now become an actual data structure in memory --- not just a pending computation --- that has two handles: one to the root of the list of type \mintinline{haskell}`[a]`, and one to the yet-to-be-filled hole in the last cons cell, represented by a destination of type \mintinline{haskell}`Dest [a]`.
 
@@ -466,11 +466,9 @@ It can be released in two ways: with \mintinline{haskell}`fromIncomplete_`, the 
 
 Because the leaves of the structure that has been built either come from non-linear sources (as \mintinline{haskell}`fillLeaf :: a → Dest a ⊸ ()` consumes its first argument non-linearly) or are made of 0-ary constructors added with \mintinline{haskell}`fill`, the whole structure can safely be used in a non-linear fashion. That's why \mintinline{haskell}`fromIncomplete_` and \mintinline{haskell}`fromIncomplete` actually wrap their result in \mintinline{haskell}`Ur`. The variants \mintinline{haskell}`fromIncomplete_'` and \mintinline{haskell}`fromIncomplete'` that have been used in the beginning of this article just drop the \mintinline{haskell}`Ur` wrapper.
 
-The function \mintinline{haskell}`toIncomplete` takes a non-linear argument of type \mintinline{haskell}`a` and wraps it into an already-complete \mintinline{haskell}`Incomplete` with no destination on the \mintinline{haskell}`b` side. \mintinline{haskell}`fromIncomplete_' . toIncomplete token` and \mintinline{haskell}`toIncomplete token . fromIncomplete_'` might do a few unnecessary allocations, but are both equivalent to the identity function. The whole API is presented in table~\ref{table:destination-api}.
+The function \mintinline{haskell}`toIncomplete` takes a non-linear argument of type \mintinline{haskell}`a` and wraps it into an already-complete \mintinline{haskell}`Incomplete` with no destination on the \mintinline{haskell}`b` side. One can get back the original object by applying \mintinline{haskell}`fromIncomplete_'`. The whole API is presented in table~\ref{table:destination-api}.
 
 \subsection{Ensuring write-once model for holes with linear types}\label{ssec:api-linearity}
-
-\TODO{Linear constraints paper?}\cite{spiwack_linearly_2022}
 
 Types aren't linear by themselves in Linear Haskell. Instead, functions can be made linear or not, but that's all. So in direct style, where the producer of a resource isn't aware of the consumers, there is no way to state that the resource must be used exactly once:
 
@@ -513,7 +511,7 @@ exampleFail' = withR' (\r → °\mold{Ur r}°) -- the callback isn't linear
 \end{minted}
 }
 
-This is exactly the principle that have been used for the DPS implementation in Haskell. \mintinline{haskell}`Incomplete a b` has a \mintinline{haskell}`Control.Functor.Linear` instance to map on the \mintinline{haskell}`b` side --- the one carrying destinations --- which forces the callback to be linear:
+This explicit \emph{scope function} trick will no longer be necessary when Linear Constraints will land in GHC (see \cite{spiwack_linearly_2022}). In the meantime, this principle have been used to ensure safety of the DPS implementation in Haskell. \mintinline{haskell}`Incomplete a b` has a \mintinline{haskell}`Control.Functor.Linear` instance to map on the \mintinline{haskell}`b` side (the one carrying destinations) which forces the callback to be linear:
 
 {\small
 \begin{minted}[escapeinside=°°]{haskell}
@@ -675,7 +673,7 @@ The number of fields of a constructor is extracted in the same way, and reified 
 
 \TODO{Mention Performance considerations: inlining ?}
 
-\subsection{Changes to GHC's internals and RTS}\label{ssec:impl-ghc}
+\subsection{Changes to GHC internals and RTS}\label{ssec:impl-ghc}
 
 Now we will get back to two complex questions we eluded in subsection~\ref{ssec:impl-generics}: how to allocate a hollow heap object for a given constructor, and how to go from a constructor entity to its associated name (as it appears in the \mintinline{haskell}`Generic` representation of its associated type), both of them which require a few alterations of GHC. But let's first take a detour to give more context about the internals of this compiler regarding constructors, heap objects, and their allocation.
 
@@ -834,12 +832,13 @@ All implementations are benchmarked against structures of size $2^{10}$, $2^{13}
 
 \subsection{Concatenating lists and difference lists}\label{ssec:benchmark-dlist}
 
-We compared four implementations:
-\begin{itemize}
-\item \mintinline{haskell}`foldr (++)` has calls to \mintinline{haskell}`(++)` nested to the right, giving the most optimal context for list concatenation (it should run in $\mathcal{O}(n)$ time)
-\item \mintinline{haskell}`foldl' (++)` is the worst case for list concatenation, expected to run in $\mathcal{O}(n^2)$ time.
-\item \mintinline[escapeinside=°°]{haskell}`foldl' concat°$\lambda$°` uses function-backed difference lists, and \mintinline{haskell}`foldl' concatDPS` uses destination-backed difference lists. Both are expected to run in linear time even if the concat calls are nested to the left.
-\end{itemize}
+We compared four implementations.
+
+\mintinline{haskell}`foldr (++)` has calls to \mintinline{haskell}`(++)` nested to the right, giving the most optimal context for list concatenation (it should run in $\mathcal{O}(n)$ time).
+
+\mintinline{haskell}`foldl' (++)` is the worst case for list concatenation, expected to run in  time.
+
+\mintinline[escapeinside=°°]{haskell}`foldl' concat°$\lambda$°` uses function-backed difference lists, and \mintinline{haskell}`foldl' concatDPS` uses destination-backed ones; both are expected to run in $\mathcal{O}(n)$ even if calls to concat are nested to the left.
 
 We see in part 1 of figure~\ref{fig:bench-charts} that the destination-backed difference lists have a comparable memory use as the two other linear implementations, and a very slight edge for large data sets (5-10\% fewer allocations), in exchange for being quite slower (2-4$\times$ time).
 
@@ -883,7 +882,7 @@ In OCaml, \mintinline{haskell}`mapDPS'` is actually more performant time-wise th
 
 The idea of functional data structures with write-once holes is not new. Minamide already proposed in~\cite{minamide_functional_1998} a variant of $\lambda$-calculus with support for \emph{hole abstractions}, which can be represented in memory by an incomplete structure with one hole and can be composed efficiently with each other (as with \mintinline{haskell}`fillComp` in figure~\ref{fig:schema-dlist-concat}). With such framework, it is fully possible to implement destination-backed difference lists for example.
 
-However, in Minamide's work, there is no concept of destination: the hole in a structure can only be filled if one has the structure itself at hand. On the other hand, our paper introduces destinations, which are a way to interact with a hole remotely, even when one doesn't have a handle to the associated data structure. Because destination are treated as first-class objects, they can be passed around or stored in collections or other structure. Being able not only to represent data structures with holes, but also manipulate references to these holes as first-class objects, while preserving memory safety, is the major step forward that this paper presents.
+However, in Minamide's work, there is no concept of destination: the hole in a structure can only be filled if one has the structure itself at hand. On the other hand, our paper introduces destinations, as a way to interact with a hole remotely, even when one doesn't have a handle to the associated structure. Because destinations are first-class objects, they can be passed around or stored in collections or other structure. Being able not only to represent data structures with holes, but also manipulate references to these holes as regular objects, while preserving memory safety, is the major step forward that our paper presents.
 
 More recently, \cite{protzenko_mezzo_2013} introduced the Mezzo programming language, in which mutable data structures can be freezed into immutable ones after having been completed. This principle is used to some extend in their list standard library module, to mimic a form of DPS programming, albeit it cannot easily express one-pass breadth first traversal or tail-recursive map as in subsections~\ref{ssec:bf-tree-traversal} and~\ref{ssec:benchmark-map}. An earlier appearance of DPS programming as a mean to achieve better performance in a mutable language can also be seen in~\cite{larus_restructuring_1989}.
 
@@ -893,7 +892,7 @@ Finally, both \cite{shaikhha_destination-passing_2017} and \cite{bour_tmc_2021} 
 
 Programming with destinations definitely has a place in the realm of functional programming, as the recent adoption of \emph{Tail Modulo Cons}~\cite{bour_tmc_2021} in OCaml compiler shows. In this paper, we have shown how destination-passing style programming can be used in user-land in Haskell safely, thanks to a linear type discipline. Adopting DPS programming opens the way for more natural and efficient programs in a variety of contexts, where the major points are being able to build structures in a top-down fashion, manipulating and composing incomplete structures, and managing holes in these structures as first-class objects (destinations). Our DPS implementation relies only on a few alterations to the compiler, thanks to \emph{compact regions} that are already available as part of GHC. Simultaneously, it allows to build structures in those regions without copying, which wasn't possible before.
 
-There are two main limitations that we would like to lift in the future. Firstly, DPS programming could be useful outside of compact regions: destinations could probably be used to manipulate the garbage-collected heap (with proper read barriers in place), or other forms of secluded memory areas that aren't traveled by the GC (RDMA, network serialized buffers, etc.). Secondly, we would like to store linear data through destinations: in the breadth-first tree traversal, we would then be able to store destinations (which are linear resources) inside a destination-backed queue for extra efficiency. At the moment the signature of \mintinline{haskell}`fillLeaf` restricts this usage. The deeper reason is that with destination-backed containers (unlike constructor-backed ones), one can make an object escape from the current scope into the parent one, while marking it has having been consumed. This isn't a problem for non-linear objects, but it is for destinations (viewed as linear objects): their consumption must always be linked with a hole being filled, but this is not what directly happens if a destination is stored away in the parent scope. We probably need a more refined API and/or type system to allow that without breaking memory safety.
+There are two limitations that we would like to lift in the future. First, DPS programming could be useful outside of compact regions: destinations could probably be used to manipulate the garbage-collected heap (with proper read barriers in place), or other forms of secluded memory areas that aren't traveled by the GC (RDMA, network serialized buffers, etc.). Secondly, we would like to store linear data through destinations: in the breadth-first tree traversal, we could then store destinations (which are linear resources) inside a destination-backed queue for extra efficiency. At the moment the signature of \mintinline{haskell}`fillLeaf` restricts this usage, for a good reason: with destination-backed containers (unlike constructor-backed ones), one can make an object escape from the current scope into the parent one, while marking it has having been consumed. This isn't a problem for non-linear objects, but it is for destinations (viewed as linear objects): their consumption must always be linked with a hole being filled, which doesn't happen if a destination is stored away in the parent scope. We probably need a more refined API and/or type system to make that safe and sound.
 
 \clearpage{}
 % Bibliography doesn't count in the page limit
