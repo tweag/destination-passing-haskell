@@ -245,7 +245,7 @@ toList i = fromIncomplete_' (i <&> \dt → fill @'[] dt)
 
 This simplified API for difference lists still lacks some linearity requirements to make it write-once/immutable. In particular, the result of \mintinline{haskellc}`alloc` should be used linearly but this isn't enforced by this API, and as a result, one could fill the embedded destination twice. Linearity concerns will be addressed in section~\ref{ssec:api-linearity}.
 
-As we see, thanks to destinations, we can write functions whose implementation is closer to their intended memory behavior (here, implementing data structures with holes), and get comparable or sometimes better performance than the implementations based on pure functional techniques. A performance report is available in subsection~\ref{ssec:benchmark-dlist}.
+As we see, thanks to destinations, we can write functions whose implementation is closer to their intended memory behavior (here, implementing data structures with holes), and get comparable or sometimes better performance than the implementations based on pure functional techniques. A performance report is available in section~\ref{sec:benchmark}.
 
 \subsection{Breadth-first tree traversal}\label{ssec:bf-tree-traversal}
 
@@ -292,7 +292,7 @@ Note that signatures of \mintinline{haskellc}`mapAccumBFS` and \mintinline{haske
 
 Because the state-transforming function \mintinline{haskellc}`s → a → (s, b)` is non-linear, the leaves of the original tree (that are stored together with destinations in the queue) won't be consumed in a linear fashion. However, as we said, destinations must be all consumed linearly, and for that to hold, the container they are put in must be consumed linearly too. So we wrap the nodes of the input tree in \mintinline{haskellc}`¤Ur`: as detailed in subsection~\ref{ssec:intro-linearity}, thanks to \mintinline{haskellc}`¤Ur`, queue pairs will appeared to be consumed linearly even though the input tree nodes aren't.
 
-With this example, we show how destinations can be used even in a non-linear setting in order to improve the expressiveness of the language. This more natural and less convoluted implementation of breadth-first traversal also presents great performance gains compared to the fancy functional implementation from~\cite{gibbons_phases_2023}, as detailed in subsection~\ref{ssec:benchmark-bf-tree-traversal}.
+With this example, we show how destinations can be used even in a non-linear setting in order to improve the expressiveness of the language. This more natural and less convoluted implementation of breadth-first traversal also presents great performance gains compared to the fancy functional implementation from~\cite{gibbons_phases_2023}, as detailed in subsection~\ref{par:benchmark-bf-tree-traversal}.
 
 \subsection{Deserializing, lifetime, and garbage collection}\label{ssec:parser-sexpr}
 
@@ -318,22 +318,90 @@ Parsing a S-expression can be done concisely with three mutually recursive funct
   \item \mintinline{haskellc}`parseSString` scans the input character by character and accumulates them until reaching a closing quote (taking escape sequences into consideration).
 \end{itemize}
 
-Only \mintinline{haskellc}`parseSList` implementation will be presented here as it is enough for our purpose, but the full implementation of both the naive and destination-based versions can be found in tables~\ref{table:impl-sexpr-parser-without-dest} and~\ref{table:impl-sexpr-parser-with-dest}.
+Only the implementation of \mintinline{haskellc}`parseSList` will be presented here as it is enough for our purpose, but the full implementation of both the naive and destination-based versions of the whole parser can be found in the software heritage archive of the project\footnote{\TODO{add it}} in \mintinline{text}`src/Compact/Pure/SExpr.hs`.
+
+The implementation presented in table~\ref{table:impl-parser-naive} is quite standard: the accumulator \mintinline{haskellc}`acc` collects the nodes that are returned by the call to \mintinline{haskellc}`parseSExpr` in the reverse order (because it's the natural building order for a linked list without destinations). When the end of the SList is reached (line 5), the accumulator is reversed and stored in the \mintinline{haskellc}`¤SList` constructor, before being returned.
+
+% \begin{table}[t]
+% \small
+% \begin{minted}[linenos,escapeinside=°°]{haskellc}
+% parseSExpr :: ByteString → Int → Either Error SExpr
+% parseSExpr bs i = case bs !? i of
+%   ¤Nothing → ¤Left (¤UnexpectedEOFSExpr i)
+%   ¤Just x → case x of
+%     ')' → ¤Left (¤UnexpectedClosingParen i)
+%     '(' → parseSList bs (i + 1) []
+%     '"' → parseSString bs (i + 1) ¤False []
+%     _ → let tok = extractNextToken bs i -- take chars until delimiter/space
+%          in if null tok then parseSExpr bs (i + 1) else case parseInt tok of
+%               ¤Just int → ¤Right (¤SInteger (i + length tok - 1) int)
+%               ¤Nothing → ¤Right (¤SSymbol (i + length tok - 1) (toString tok))
+% parseSList :: ByteString → Int → [SExpr] → Either Error SExpr
+% parseSList bs i acc = case bs !? i of
+%   ¤Nothing → ¤Left (¤UnexpectedEOFSList i)
+%   ¤Just x → if
+%     | x == ')' → ¤Right (¤SList i (reverse acc))
+%     | isSpace x → parseSList bs (i + 1) acc
+%     | otherwise → case parseSExpr bs i of
+%         ¤Left err → ¤Left err
+%         ¤Right child → parseSList bs (endPos child + 1) (child : acc)
+% parseSString :: ByteString → Int → Bool → [Char] → Either Error SExpr
+% parseSString bs i escape acc = case bs !? i of
+%   ¤Nothing → ¤Left (¤UnexpectedEOFSString i)
+%   ¤Just x → case x of
+%     '"'  | not escape → ¤Right (SString i (reverse acc))
+%     '\\' | not escape → parseSString bs (i + 1) ¤True acc
+%     'n'  | escape → parseSString bs (i + 1) ¤False ('\n' : acc)
+%     _ → parseSString bs (i + 1) ¤False (x : acc)
+% \end{minted}
+% \caption{Implementation of the S-expression parser without destinations}
+% \label{table:impl-sexpr-parser-without-dest}
+% \end{table}
+
+% \begin{table}[t]
+% \small
+% \begin{minted}[linenos,escapeinside=°°]{haskellc}
+% parseSExprDPS :: ByteString → Int → Dest SExpr ⊸ Either Error Int
+% parseSExprDPS bs i d = case bs !? i of
+%   ¤Nothing → °\mnew{fillLeaf defaultSExpr d}° ;; ¤Left (¤UnexpectedEOFSExpr i)
+%   ¤Just x → case x of
+%     ')' → °\mnew{fillLeaf defaultSExpr d}° ;; ¤Left (¤UnexpectedClosingParen i)
+%     '(' → parseSListDPS bs (i + 1) °\mnew{(fill @'SList d)}°
+%     '"' → parseSStringDPS bs (i + 1) ¤False °\mnew{(fill @'SString d)}°
+%     _ → let tok = extractNextToken bs i -- take chars until delimiter/space
+%         in if null tok then parseSExprDPS bs (i + 1) d else case parseInt tok of
+%               ¤Just int → let °\mnew{!dint = fill @'SInteger d}°
+%                           in °\mnew{fillLeaf int dint}° ;; ¤Right (i + length tok - 1)
+%               _ → let °\mnew{!dsym = fill @'SSymbol d}°
+%                    in °\mnew{fillLeaf (toString tok) dsym}° ;; ¤Right (i + length tok - 1)
+% parseSListDPS :: ByteString → Int → Dest [SExpr] ⊸ Either Error Int
+% parseSListDPS bs i d = case bs !? i of
+%   ¤Nothing → °\mnew{fill @'[] d}° ;; ¤Left (¤UnexpectedEOFSList i)
+%   ¤Just x → if
+%     | x == ')' → °\mnew{fill @'[] d}° ;; ¤Right i
+%     | isSpace x → parseSListDPS bs (i + 1) d
+%     | otherwise → let !(dh, dt) = °\mnew{fill @'(:) d}°
+%                    in case parseSExprDPS bs i °\mnew{dh}° of
+%                         ¤Left err → fill @'[] dt ;; ¤Left err
+%                         ¤Right endPos → parseSListDPS bs (endPos + 1) °\mnew{dt}°
+% parseSStringDPS :: ByteString → Int → Bool → Dest [Char] ⊸ Either Error Int
+% parseSStringDPS bs i escape d = case bs !? i of
+%   ¤Nothing → °\mnew{fill @'[] d}° ;; ¤Left (¤UnexpectedEOFSString i)
+%   ¤Just x → case x of
+%     '"'  | not escape → °\mnew{fill @'[] d}° ;; ¤Right i
+%     '\\' | not escape → parseSStringDPS bs (i + 1) ¤True d
+%     'n'  | escape → let °\mnew{!(dh, dt) = fill @'(:) d}°
+%                      in °\mnew{fillLeaf '\textbackslash{}n' dh}° ;; parseSStringDPS bs (i + 1) ¤False °\mnew{dt}°
+%     _ → let °\mnew{!(dh, dt) = fill @'(:) d}°
+%          in °\mnew{fillLeaf x dh}° ;; parseSStringDPS bs (i + 1) ¤False °\mnew{dt}°
+% \end{minted}
+% \caption{Implementation of the S-expression parser with destinations}
+% \label{table:impl-sexpr-parser-with-dest}
+% \end{table}
 
 \begin{table}[t]
 \small
 \begin{minted}[linenos,escapeinside=°°]{haskellc}
-parseSExpr :: ByteString → Int → Either Error SExpr
-parseSExpr bs i = case bs !? i of
-  ¤Nothing → ¤Left (¤UnexpectedEOFSExpr i)
-  ¤Just x → case x of
-    ')' → ¤Left (¤UnexpectedClosingParen i)
-    '(' → parseSList bs (i + 1) []
-    '"' → parseSString bs (i + 1) ¤False []
-    _ → let tok = extractNextToken bs i -- take chars until delimiter/space
-         in if null tok then parseSExpr bs (i + 1) else case parseInt tok of
-              ¤Just int → ¤Right (¤SInteger (i + length tok - 1) int)
-              ¤Nothing → ¤Right (¤SSymbol (i + length tok - 1) (toString tok))
 parseSList :: ByteString → Int → [SExpr] → Either Error SExpr
 parseSList bs i acc = case bs !? i of
   ¤Nothing → ¤Left (¤UnexpectedEOFSList i)
@@ -343,79 +411,15 @@ parseSList bs i acc = case bs !? i of
     | otherwise → case parseSExpr bs i of
         ¤Left err → ¤Left err
         ¤Right child → parseSList bs (endPos child + 1) (child : acc)
-parseSString :: ByteString → Int → Bool → [Char] → Either Error SExpr
-parseSString bs i escape acc = case bs !? i of
-  ¤Nothing → ¤Left (¤UnexpectedEOFSString i)
-  ¤Just x → case x of
-    '"'  | not escape → ¤Right (SString i (reverse acc))
-    '\\' | not escape → parseSString bs (i + 1) ¤True acc
-    'n'  | escape → parseSString bs (i + 1) ¤False ('\n' : acc)
-    _ → parseSString bs (i + 1) ¤False (x : acc)
-\end{minted}
-\caption{Implementation of the S-expression parser without destinations}
-\label{table:impl-sexpr-parser-without-dest}
-\end{table}
-
-\begin{table}[t]
-\small
-\begin{minted}[linenos,escapeinside=°°]{haskellc}
-parseSExprDPS :: ByteString → Int → Dest SExpr ⊸ Either Error Int
-parseSExprDPS bs i d = case bs !? i of
-  ¤Nothing → °\mnew{fillLeaf defaultSExpr d}° ;; ¤Left (¤UnexpectedEOFSExpr i)
-  ¤Just x → case x of
-    ')' → °\mnew{fillLeaf defaultSExpr d}° ;; ¤Left (¤UnexpectedClosingParen i)
-    '(' → parseSListDPS bs (i + 1) °\mnew{(fill @'SList d)}°
-    '"' → parseSStringDPS bs (i + 1) ¤False °\mnew{(fill @'SString d)}°
-    _ → let tok = extractNextToken bs i -- take chars until delimiter/space
-        in if null tok then parseSExprDPS bs (i + 1) d else case parseInt tok of
-              ¤Just int → let °\mnew{!dint = fill @'SInteger d}°
-                          in °\mnew{fillLeaf int dint}° ;; ¤Right (i + length tok - 1)
-              _ → let °\mnew{!dsym = fill @'SSymbol d}°
-                   in °\mnew{fillLeaf (toString tok) dsym}° ;; ¤Right (i + length tok - 1)
-parseSListDPS :: ByteString → Int → Dest [SExpr] ⊸ Either Error Int
-parseSListDPS bs i d = case bs !? i of
-  ¤Nothing → °\mnew{fill @'[] d}° ;; ¤Left (¤UnexpectedEOFSList i)
-  ¤Just x → if
-    | x == ')' → °\mnew{fill @'[] d}° ;; ¤Right i
-    | isSpace x → parseSListDPS bs (i + 1) d
-    | otherwise → let !(dh, dt) = °\mnew{fill @'(:) d}°
-                   in case parseSExprDPS bs i °\mnew{dh}° of
-                        ¤Left err → fill @'[] dt ;; ¤Left err
-                        ¤Right endPos → parseSListDPS bs (endPos + 1) °\mnew{dt}°
-parseSStringDPS :: ByteString → Int → Bool → Dest [Char] ⊸ Either Error Int
-parseSStringDPS bs i escape d = case bs !? i of
-  ¤Nothing → °\mnew{fill @'[] d}° ;; ¤Left (¤UnexpectedEOFSString i)
-  ¤Just x → case x of
-    '"'  | not escape → °\mnew{fill @'[] d}° ;; ¤Right i
-    '\\' | not escape → parseSStringDPS bs (i + 1) ¤True d
-    'n'  | escape → let °\mnew{!(dh, dt) = fill @'(:) d}°
-                     in °\mnew{fillLeaf '\textbackslash{}n' dh}° ;; parseSStringDPS bs (i + 1) ¤False °\mnew{dt}°
-    _ → let °\mnew{!(dh, dt) = fill @'(:) d}°
-         in °\mnew{fillLeaf x dh}° ;; parseSStringDPS bs (i + 1) ¤False °\mnew{dt}°
 \end{minted}
 \caption{Implementation of the S-expression parser with destinations}
-\label{table:impl-sexpr-parser-with-dest}
+\label{table:impl-parser-naive}
 \end{table}
-
-{\small
-\begin{minted}[linenos]{haskellc}
-parseSList :: ByteString → Int → [SExpr] → Either Error SExpr
-parseSList bs i acc = case bs !? i of
-  ¤Nothing → ¤Left (¤UnexpectedEOFSList i)
-  ¤Just x → if
-    | x == ')' → ¤Right (¤SList i (reverse acc))
-    | isSpace x → parseSList bs (i + 1) acc
-    | otherwise → case parseSExpr bs i of
-        ¤Left err → ¤Left err
-        ¤Right child → parseSList bs (endPos child + 1) (child : acc)
-\end{minted}
-}
-
-This tail-recursive implementation above is quite standard: the accumulator \mintinline{haskellc}`acc` collects the nodes that are returned by the call to \mintinline{haskellc}`parseSExpr` in the reverse order (because it's the natural building order for a linked list without destinations). When the end of the SList is reached (line 5), the accumulator is reversed and stored in the \mintinline{haskellc}`¤SList` constructor, before being returned.
 
 We will see that destinations can bring very significative performance gains with only very little stylistic changes in the code. Accumulators of tail-recursive functions just have to be changed into destinations. Instead of writing elements into a list that will be reversed at the end as we did before, the program in the destination style will directly write the elements into their final location:
 
-{\small
+\begin{table}[t]
+\small
 \begin{minted}[linenos,escapeinside=°°]{haskellc}
 parseSListDPS :: ByteString → Int → Dest [SExpr] ⊸ Either Error Int
 parseSListDPS bs i d = case bs !? i of
@@ -429,9 +433,11 @@ parseSListDPS bs i d = case bs !? i of
               ¤Left err → fill @'[] dt ;; ¤Left err
               ¤Right endPos → parseSListDPS bs (endPos + 1) °\mnew{dt}°
 \end{minted}
-}
+\caption{Implementation of the S-expression parser with destinations}
+\label{table:impl-parser-dps}
+\end{table}
 
-Let's see what changed compared to the naive implementation:
+Code for \mintinline{haskellc}`parseSListDPS` is presented in table~\ref{table:impl-parser-dps}. Let's see what changed compared to the naive implementation:
 
 \begin{itemize}
   \item even for error cases, we are forced to consume the destination that we receive as an argument, hence we write some sensible default data to it (see line 3);
@@ -443,7 +449,7 @@ Let's see what changed compared to the naive implementation:
 It is important to note that destinations allow to reverse the natural order in which a structure is built. For a list, the natural operation in functional programming languages is \emph{prepend}/\mintinline{haskellc}`(:)`, which adds an element at the front of an existing list (bottom-up approach). Thanks to destinations, it's possible to build a list starting from an element which will stay at the head of the it, and add new elements towards the tail of the list (top-down approach, with \emph{append}/\mintinline{haskellc}`fill @'(:)`). Of course, it is possible to mix both approaches, thanks to \mintinline{haskellc}`fillComp`/\mintinline{haskellc}`fillLeaf`.
 \TODO{keep this paragraph?}
 
-Thanks to that new implementation which is barely longer (in terms of lines of code) than the naive one, the program runs almost twice as fast, mostly because garbage-collection time goes to almost zero. The detailed benchmark is available in section~\ref{ssec:benchmark-parser}.
+Thanks to that new implementation which is barely longer (in terms of lines of code) than the naive one, the program runs almost twice as fast, mostly because garbage-collection time goes to almost zero. The detailed benchmark is available in section~\ref{sec:benchmark}.
 
 \section{API Design}\label{sec:api}
 
@@ -711,37 +717,6 @@ That's why we will need two primitives two properly allocate a hollow constructo
 
 The implementation of the external primop mostly takes place in \mintinline{text}`rts/Compact.cmm`, the main C-{}- module of the RTS for compact regions management, as presented in table~\ref{table:impl-compactAddHollow}.
 
-\begin{table}[t]
-\small
-\begin{minted}[linenos]{c}
-// compactAddHollow#
-//   :: Compact# → Addr# → State# RealWorld → (# State# RealWorld, a #)
-stg_compactAddHollowzh(P_ compact, W_ info)
-{
-    W_ pp, ptrs, nptrs, size, tag, hp;
-    P_ to, p;
-    again: MAYBE_GC(again);
-    STK_CHK_GEN();
-
-    pp = compact + SIZEOF_StgHeader + OFFSET_StgCompactNFData_result;
-    ptrs  = TO_W_(%INFO_PTRS(%STD_INFO(info)));
-    nptrs  = TO_W_(%INFO_NPTRS(%STD_INFO(info)));
-    size = BYTES_TO_WDS(SIZEOF_StgHeader) + ptrs + nptrs;
-    p = NULL;  // p isn't actually used by ALLOCATE macro
-
-    ALLOCATE(compact, size, p, to, tag);
-    P_[pp] = to;
-    SET_HDR(to, info, CCS_SYSTEM);
-#if defined(DEBUG)
-    ccall verifyCompact(compact);
-#endif
-    return (P_[pp]);
-}
-\end{minted}
-\caption{Implementation of \texttt{compactAddHollow\#} in the RTS}
-\label{table:impl-compactAddHollow}
-\end{table}
-
 The \mintinline{c}`stg_compactAddHollowzh` function (whose equivalent on the Haskell side is \mintinline{haskellc}`compactAddHollow#`) is mostly a glorified call to the \mintinline{haskellc}`ALLOCATE` macro defined in the same file, which tries to do a pointer-bumping allocation in the current block of the compact region if there is enough space, and otherwise add a new block to the region.
 
 The function takes the info table pointer of the constructor to allocate as its second parameter (\mintinline{c}`W_ info`) because it cannot access that information itself, as we explained above. The info table pointer is written to the heap object in the call to \mintinline{c}`SET_HDR`.
@@ -758,7 +733,58 @@ Here's the trick I used so: I built a dedicated return type for \mintinline{hask
 
 The gist of this implementation is presented in table~\ref{table:impl-reifyInfoPtr}, which we will now comment a bit.
 
-\begin{table}[t]
+This function pattern-matches on the type \mintinline{haskellc}`resTy` of the return value of the primop (which is parametric):
+\begin{itemize}
+  \item in the case it reads a string literal, it compiles the primop call into the label having the same name (prefixed with \mintinline{haskellc}`"stg_"`), which is considered as a static value;
+  \item in the case it reads a lifted data constructor, it compiles the primop call into the label which corresponds to the info table pointer of that constructor, which is once again considered as a static value.
+\end{itemize}
+
+The primop that we implemented, \mintinline{haskellc}`reifyInfoPtr#`, returns a value of type \mintinline{haskellc}`InfoPtrPlaceholder# a` and not directly an \mintinline{haskellc}`Addr#`, but this is not a problem: the former can be converted into the latter by calling the \mintinline{haskellc}`unsafeCoerceAddr` function supplied by GHC, as both types are represented by pointers/addresses under the hood.
+
+As an example, the following piece of code uses the two aforementioned primops to allocate a hollow \mintinline{haskellc}`¤Just` constructor in a compact region:
+{\small
+\begin{minted}[linenos]{haskellc}
+hollowJust :: Maybe a = compactAddHollow#
+  compactRegion#
+  (unsafeCoerceAddr (reifyInfoPtr# (# #) :: InfoPtrPlaceholder# 'Just ))
+\end{minted}
+}
+
+\paragraph{Built-in type family to go from a lifted constructor to the associated symbol}
+
+The internal primop \mintinline{haskellc}`reifyInfoPtr#` that we introduced above takes as input a constructor lifted into a type-level literal, so this is also what \mintinline{haskellc}`fill` will use to know which constructor it should operate with. But \mintinline{haskellc}`DestsOf` have a find the metadata of a constructor in the \mintinline{haskellc}`Generic` representation of a type, in which only the constructor name appears.
+
+So we added a new type family \mintinline{haskellc}`LCtorToSymbol` inside GHC that inspects its (type-level) parameter representing a constructor, resolves it into the associated \mintinline{haskellc}`DataCon` structure, and returns a type-level string (kind \mintinline{haskellc}`Symbol`) carrying the constructor name, as presented in table~\ref{table:impl-LCtorToSymbol}
+
+\begin{table}[!htb]
+\small
+\begin{minted}[linenos]{c}
+// compactAddHollow#
+//   :: Compact# → Addr# → State# RealWorld → (# State# RealWorld, a #)
+stg_compactAddHollowzh(P_ compact, W_ info) {
+    W_ pp, ptrs, nptrs, size, tag, hp;
+    P_ to, p; p = NULL;  // p isn't actually used by ALLOCATE macro
+    again: MAYBE_GC(again); STK_CHK_GEN();
+
+    pp = compact + SIZEOF_StgHeader + OFFSET_StgCompactNFData_result;
+    ptrs  = TO_W_(%INFO_PTRS(%STD_INFO(info)));
+    nptrs  = TO_W_(%INFO_NPTRS(%STD_INFO(info)));
+    size = BYTES_TO_WDS(SIZEOF_StgHeader) + ptrs + nptrs;
+    
+    ALLOCATE(compact, size, p, to, tag);
+    P_[pp] = to;
+    SET_HDR(to, info, CCS_SYSTEM);
+  #if defined(DEBUG)
+    ccall verifyCompact(compact);
+  #endif
+    return (P_[pp]);
+}
+\end{minted}
+\caption{\texttt{compactAddHollow\#} implementation in \texttt{rts/Compact.cmm}}
+\label{table:impl-compactAddHollow}
+\end{table}
+
+\begin{table}[!htb]
 \small
 \begin{minted}[linenos]{haskellc}
 case primop of
@@ -776,56 +802,32 @@ case primop of
             mkConInfoTableLabel (dataConName dataCon) ¤DefinitionSite))
       _ → [...] -- error when no pattern matches
 \end{minted}
-\caption{Implementation of \texttt{reifyInfoPtr\#} in GHC}
+\caption{\texttt{reifyInfoPtr\#} implementation in \texttt{compiler/GHC/StgToCmm/Prim.hs}}
 \label{table:impl-reifyInfoPtr}
 \end{table}
 
-This function pattern-matches on the type \mintinline{haskellc}`resTy` of the return value of the primop (which is parametric):
-\begin{itemize}
-  \item in the case it reads a string literal, it compiles the primop call into the label having the same name (prefixed with \mintinline{haskellc}`"stg_"`), which is considered as a static value;
-  \item in the case it reads a lifted data constructor, it compiles the primop call into the label which corresponds to the info table pointer of that constructor, which is once again considered as a static value.
-\end{itemize}
-
-The primop that we implemented, \mintinline{haskellc}`reifyInfoPtr#`, returns a value of type \mintinline{haskellc}`InfoPtrPlaceholder# a` and not directly an \mintinline{haskellc}`Addr#`, but this is not a problem: the former can be converted into the latter by calling the \mintinline{haskellc}`unsafeCoerceAddr` function supplied by GHC, as both types are represented by pointers/addresses under the hood.
-
-\paragraph{Combining both primops}
-
-With both primops in hand, we can allocate a hollow constructor closure directly in a compact region in an efficient fashion. For example, for \mintinline{haskellc}`¤Just`, one should do:
-{\small
+\begin{table}[!htb]
+\small
 \begin{minted}[linenos]{haskellc}
-hollowJust :: Maybe a
-hollowJust = compactAddHollow#
-  compactRegion#
-  (unsafeCoerceAddr (reifyInfoPtr# (# #) :: InfoPtrPlaceholder# 'Just ))
-\end{minted}
-}
-
-It would probably be possible to merge the two primops into a two-stage one (with both a compile-time and run-time action) without too much effort.
-
-\paragraph{Built-in type family to go from a lifted constructor to the associated symbol}
-
-The internal primop \mintinline{haskellc}`reifyInfoPtr#` that we introduced above takes as input a constructor lifted into a type-level literal, so this is also what \mintinline{haskellc}`fill` will use to know which constructor it should operate with. But \mintinline{haskellc}`DestsOf` have a find the metadata of a constructor in the \mintinline{haskellc}`Generic` representation of a type, in which only the constructor name appears.
-
-So we added a new type family \mintinline{haskellc}`LiftedCtorToSymbol` inside GHC that inspects its (type-level) parameter representing a constructor, resolves it into the associated \mintinline{haskellc}`DataCon` structure, and returns a type-level string (kind \mintinline{haskellc}`Symbol`) carrying the constructor name:
-{\small
-\begin{minted}[linenos]{haskellc}
-matchFamLiftedCtorToSymbol :: [Type] → Maybe (CoAxiomRule, [Type], Type)
-matchFamLiftedCtorToSymbol [kind, ty]
+matchFamLCtorToSymbol :: [Type] → Maybe (CoAxiomRule, [Type], Type)
+matchFamLCtorToSymbol [kind, ty]
   | ¤TyConApp tyCon _ ← ty, ¤Just dataCon ← isPromotedDataCon_maybe tyCon =
       let symbolLit = (mkStrLitTy . occNameFS . occName . getName $ dataCon)
-       in ¤Just (axLiftedCtorToSymbolDef, [kind, ty], symbolLit)
-matchFamLiftedCtorToSymbol tys = ¤Nothing
+       in ¤Just (axLCtorToSymbolDef, [kind, ty], symbolLit)
+matchFamLCtorToSymbol tys = ¤Nothing
 
-axLiftedCtorToSymbolDef =
-  mkBinAxiom "LiftedCtorToSymbolDef" typeLiftedCtorToSymbolTyCon ¤Just
+axLCtorToSymbolDef =
+  mkBinAxiom "LCtorToSymbolDef" typeLCtorToSymbolTyCon ¤Just
     (\case { ¤TyConApp tyCon _ → isPromotedDataCon_maybe tyCon ; _ → ¤Nothing })
     (\_ dataCon → ¤Just (mkStrLitTy . occNameFS . occName . getName $ dataCon))
 \end{minted}
-}
+\caption{\mintinline{haskellc}`LCtorToSymbol` implementation in \texttt{compiler/GHC/Builtin/Types/Literal.hs}}
+\label{table:impl-LCtorToSymbol}
+\end{table}
 
 \section{Evaluating performance of DPS programming}\label{sec:benchmark}
 
-\subsection{Benchmarking methodology}
+\paragraph{Benchmarking methodology}
 
 All over this article, we talked about programs in both naive style (using regular Haskell constructors) and in DPS style, backed by compact regions.
 
@@ -843,7 +845,7 @@ All implementations are benchmarked against structures of size $2^{10}$, $2^{13}
   \label{fig:bench-charts}
 \end{figure}
 
-\subsection{Concatenating lists and difference lists}\label{ssec:benchmark-dlist}
+\paragraph{Concatenating lists and difference lists}
 
 We compared four implementations.
 
@@ -853,16 +855,11 @@ We compared four implementations.
 
 \mintinline[escapeinside=°°]{haskellc}`foldl' concat°$\lambda$°` uses function-backed difference lists, and \mintinline{haskellc}`foldl' concatDPS` uses destination-backed ones; both are expected to run in $\mathcal{O}(n)$ even if calls to concat are nested to the left.
 
-We see in part 1 of figure~\ref{fig:bench-charts} that the destination-backed difference lists have a comparable memory use as the two other linear implementations, and a very slight edge for large data sets (5-10\% fewer allocations), in exchange for being quite slower (2-4$\times$ time).
+We see in part \textbf{A} of figure~\ref{fig:bench-charts} that the destination-backed difference lists have a comparable memory use as the two other linear implementations, and a very slight edge for large data sets (5-10\% fewer allocations), in exchange for being quite slower (2-4$\times$ time).
 
+\paragraph{Parsing S-expressions}
 
-\subsection{Relabeling a tree in a breadth-first fashion}\label{ssec:benchmark-bf-tree-traversal}
-
-We see in part 2 of figure~\ref{fig:bench-charts} that the destination-based tree traversal is almost one order of magnitude more efficient, both time-wise and memory-wise, compared to the implementation based on \emph{Phases} applicatives presented in~\cite{gibbons_phases_2023}.
-
-\subsection{Parsing S-expressions}\label{ssec:benchmark-parser}
-
-In part 3 of figure~\ref{fig:bench-charts}, we compared the naive implementation of the S-expression parser (see table~\ref{table:impl-sexpr-parser-without-dest}) and the DPS one (see table~\ref{table:impl-sexpr-parser-with-dest}) against a 15,000-lines-long file.
+In part \textbf{B} of figure~\ref{fig:bench-charts}, we compared the naive implementation of the S-expression parser and the DPS one (see subsection~\ref{ssec:parser-sexpr}) against a 15,000-lines-long file.
 
 It is interesting to see that the DPS version makes about 50\% more allocations than the starred naive version, but uses 10\% less memory at its peak (not shown in the figure), and more importantly, spends 38$\times$ less time in garbage collection (with 6$\times$ less bytes copied by the GC). As a result, the DPS version only takes 0.55-0.65$\times$ the time spent by the naive versions, thanks to garbage collection savings. This also indicates that most of the data allocated in the garbage-collected heap by the DPS version just lasts one generation and thus can be discarded very early by the GC, without needing to be copied into the next generation, unlike most nodes allocated by the naive versions.
 
@@ -870,26 +867,30 @@ We can also observe in part 3 of figure~\ref{fig:bench-charts} that copying the 
 
 This benchmark is probably the most significant of the paper: it proves that DPS is a viable technique for some real-world use cases, bringing gains that cannot be obtained easily with other approaches in pure functional programming languages.
 
-\subsection{Mapping a function over a list}\label{ssec:benchmark-map}
+\paragraph{Relabeling a tree in a breadth-first fashion}\label{par:benchmark-bf-tree-traversal}
 
-It seemed important to also measure the performance of a \mintinline{haskellc}`map` function implementation using destinations. In a strict functional language such as OCaml, the choice of implementation for \mintinline{haskellc}`map` is crucial as the naive one makes the stack grow linearly with the size of the processed list. A strict tail-recursive version (\mintinline{haskellc}`mapTR'`) takes $\mathcal{O}(1)$ space, but it requires an extra $\mathcal{O}(n)$ operation at the end of the processing (reversing the accumulator). 
+We see in part \textbf{C} of figure~\ref{fig:bench-charts} that the destination-based tree traversal is almost one order of magnitude more efficient, both time-wise and memory-wise, compared to the implementation based on \emph{Phases} applicatives presented in~\cite{gibbons_phases_2023}.
 
-With destinations, \mintinline{haskellc}`map` can be implemented in a tail-recursive fashion without the need for the reverse operation (as the list is built in a top-down approach). It can also be implemented as a fold:
-{\small
-\begin{minted}[linenos]{haskellc}
-append :: Dest [a] ⊸ a → Dest [a]
-append d x = let !(dh, dt) = fill @'(:) d in fillLeaf x dh ;; dt
+% \subsection{Mapping a function over a list}\label{ssec:benchmark-map}
 
-mapDPS' _ [] d = fill @'[] d
-mapDPS' f (x : xs) d = let !y = f x ; !d' = append d y in mapDPS' f xs d'
+% It seemed important to also measure the performance of a \mintinline{haskellc}`map` function implementation using destinations. In a strict functional language such as OCaml, the choice of implementation for \mintinline{haskellc}`map` is crucial as the naive one makes the stack grow linearly with the size of the processed list. A strict tail-recursive version (\mintinline{haskellc}`mapTR'`) takes $\mathcal{O}(1)$ space, but it requires an extra $\mathcal{O}(n)$ operation at the end of the processing (reversing the accumulator). 
 
-mapDPSFold' f l dl = fill @'[] (foldl' (\d x → let !y = f x in append d y) d l)
-\end{minted}
-}
+% With destinations, \mintinline{haskellc}`map` can be implemented in a tail-recursive fashion without the need for the reverse operation (as the list is built in a top-down approach). It can also be implemented as a fold:
+% {\small
+% \begin{minted}[linenos]{haskellc}
+% append :: Dest [a] ⊸ a → Dest [a]
+% append d x = let !(dh, dt) = fill @'(:) d in fillLeaf x dh ;; dt
 
-We see in part 4 of figure~\ref{fig:bench-charts} that the destination-based implementations takes 1.5-4$\times$ more time than \mintinline{haskellc}`map` and \mintinline{haskellc}`mapTR'` (depending on the dataset size), but memory-wise both \mintinline{haskellc}`mapDPS'` and \mintinline{haskellc}`mapDPSFold'` are more efficient than \mintinline{haskellc}`map`; and \mintinline{haskellc}`mapDPS'` even manage to make 13\% fewer allocs than \mintinline{haskellc}`mapTR'` on the largest dataset.
+% mapDPS' _ [] d = fill @'[] d
+% mapDPS' f (x : xs) d = let !y = f x ; !d' = append d y in mapDPS' f xs d'
 
-In OCaml, \mintinline{haskellc}`mapDPS'` is actually more performant time-wise than \mintinline{haskellc}`mapTR'` ($0.5-0.85\times$) even for small lists, as detailed in~\cite{bour_tmc_2021}.
+% mapDPSFold' f l dl = fill @'[] (foldl' (\d x → let !y = f x in append d y) d l)
+% \end{minted}
+% }
+
+% We see in part 4 of figure~\ref{fig:bench-charts} that the destination-based implementations takes 1.5-4$\times$ more time than \mintinline{haskellc}`map` and \mintinline{haskellc}`mapTR'` (depending on the dataset size), but memory-wise both \mintinline{haskellc}`mapDPS'` and \mintinline{haskellc}`mapDPSFold'` are more efficient than \mintinline{haskellc}`map`; and \mintinline{haskellc}`mapDPS'` even manage to make 13\% fewer allocs than \mintinline{haskellc}`mapTR'` on the largest dataset.
+
+% In OCaml, \mintinline{haskellc}`mapDPS'` is actually more performant time-wise than \mintinline{haskellc}`mapTR'` ($0.5-0.85\times$) even for small lists, as detailed in~\cite{bour_tmc_2021}.
 
 \section{Related work}
 
@@ -897,9 +898,9 @@ The idea of functional data structures with write-once holes is not new. Minamid
 
 However, in Minamide's work, there is no concept of destination: the hole in a structure can only be filled if one has the structure itself at hand. On the other hand, our paper introduces destinations, as a way to interact with a hole remotely, even when one doesn't have a handle to the associated structure. Because destinations are first-class objects, they can be passed around or stored in collections or other structure. Being able not only to represent data structures with holes, but also manipulate references to these holes as regular objects, while preserving memory safety, is the major step forward that our paper presents.
 
-More recently, \cite{protzenko_mezzo_2013} introduced the Mezzo programming language, in which mutable data structures can be freezed into immutable ones after having been completed. This principle is used to some extend in their list standard library module, to mimic a form of DPS programming, albeit it cannot easily express one-pass breadth first traversal or tail-recursive map as in subsections~\ref{ssec:bf-tree-traversal} and~\ref{ssec:benchmark-map}. An earlier appearance of DPS programming as a mean to achieve better performance in a mutable language can also be seen in~\cite{larus_restructuring_1989}.
+More recently, \cite{protzenko_mezzo_2013} introduced the Mezzo programming language, in which mutable data structures can be freezed into immutable ones after having been completed. This principle is used to some extend in their list standard library module, to mimic a form of DPS programming, albeit it cannot easily express one-pass breadth first traversal or tail-recursive map. An earlier appearance of DPS programming as a mean to achieve better performance in a mutable language can also be seen in~\cite{larus_restructuring_1989}.
 
-Finally, both \cite{shaikhha_destination-passing_2017} and \cite{bour_tmc_2021} use DPS programming to make list or array processing algorithms more efficient in a functional, immutable context, by turning non tail-recursive functions into tail-recursive DPS ones, as we did in~\ref{ssec:benchmark-map}. More importantly, they present an automatized way to go from a naive program to its tail-recursive version. However, holes/destinations are only supported at an intermediary language level in those papers, while both~\cite{minamide_functional_1998} and our present work support safe DPS programming in user-land.
+Finally, both \cite{shaikhha_destination-passing_2017} and \cite{bour_tmc_2021} use DPS programming to make list or array processing algorithms more efficient in a functional, immutable context, by turning non tail-recursive functions into tail-recursive DPS ones. More importantly, they present an automatized way to go from a naive program to its tail-recursive version. However, holes/destinations are only supported at an intermediary language level in those papers, while both~\cite{minamide_functional_1998} and our present work support safe DPS programming in user-land.
 
 \section{Conclusion and future work}
 
