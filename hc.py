@@ -71,6 +71,8 @@ class HC(RegexLexer):
             # (r"\(?\b(?:[abcsr]|lCtor)(\.|\)|\]|\,|\b)+", Keyword.Type), # tbagrel1: a, b, c, s, r are type variables
             # #(r"(?<=(?:[abcsr]|lCtor))\)*,*", Keyword.Type),
             # (r"¤'?[_" + uni.Ll + r"][\w']*", Keyword.Type),
+            (r'¤\(\)', Name.Class),
+            (r'\(\)', Keyword.Type), # tbagrel1: changed unit to Keyword.Type
             (finalType, Keyword.Type),
             (r"[_□" + uni.Ll + r"][\w'#]*", Name),
             (r"¤('')?[" + uni.Lu + r"][\w\'#]*", Name.Class),
@@ -112,7 +114,6 @@ class HC(RegexLexer):
             (r'"', String, 'string'),
             #  Special
             (r'\[\]', Name.Class),
-            (r'¤\(\)', Name.Class),
             (r'¤\(', Keyword.Type),
             (r'¤\)', Keyword.Type),
             (r'¤\[', Keyword.Type),
@@ -120,7 +121,6 @@ class HC(RegexLexer):
             (r'[:,]', Name.Class),
             # (r'\(:\)', Name.Class),
             # (r'\(,\)', Name.Class),
-            (r'\(\)', Keyword.Type), # tbagrel1: changed unit to Keyword.Type
             (r'[][)(]', Name.Class),
             # \((?:[^)(]+|(?R))(?:\s*,\s*(?:[^)(]+|(?R)))+\)
 

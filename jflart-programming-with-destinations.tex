@@ -82,6 +82,8 @@ In this article, I present an implementation of destinations for Haskell, which 
 \TODO{Change toc in intro by "set expectations" paragraph}
 \TODO{Paragraph instead of subsections for benchmarks}
 
+\TODO{reparler de map quelque part}
+
 \section{Introduction}
 
 Destination-passing style (DPS) programming takes its source in the early days of imperative languages with manual memory management. In the C programming language, it's quite common for a function not to allocate memory itself for its result, but rather to receive a reference to a memory location where to write its result (often named \emph{out parameter}). In that scheme, the caller of the function has control over allocation and disposal of memory for the function result, and thus gets to choose where the latter will be written.
@@ -165,19 +167,19 @@ toList i = fromIncomplete_' (i <&> \dt → fill @'[] dt)
 \label{table:impl-dlist}
 \end{table}
 
-\begin{figure}[t]\centering
+\begin{figure}[p]\centering
   \includegraphics[width=9cm]{fillCons.png}
   \caption{Memory behavior of \mintinline{haskellc}`fill @'(:) :: Dest [a] ⊸ (Dest a, Dest [a])`}
   \label{fig:schema-fillCons}
 \end{figure}
 
-\begin{figure}[t]\centering
+\begin{figure}[p]\centering
   \includegraphics[width=7.5cm]{fillNil.png}
   \caption{Memory behavior of \mintinline{haskellc}`fill @'[] :: Dest [a] ⊸ ()`}
   \label{fig:schema-fillNil}
 \end{figure}
 
-\begin{figure}[t]\centering
+\begin{figure}[p]\centering
   \includegraphics[width=8.5cm]{fillLeaf.png}
   \caption{Memory behavior of \mintinline{haskellc}`fillLeaf :: a → Dest [a] ⊸ ()`}
   \label{fig:schema-fillLeaf}
@@ -190,13 +192,13 @@ toList i = fromIncomplete_' (i <&> \dt → fill @'[] dt)
 %   \label{fig:schema-fillComp}
 % \end{figure}
 
-\begin{figure}[t]\centering
+\begin{figure}[p]\centering
   \includegraphics[width=4.2cm]{alloc.png}
   \caption{Memory behavior of \mintinline{haskellc}`alloc`}
   \label{fig:schema-alloc}
 \end{figure}
 
-\begin{figure}[t]\centering
+\begin{figure}[p]\centering
   \includegraphics[width=14cm]{dlist-append.png}
   \caption{Memory behavior of \mintinline{haskellc}`append alloc 1`}
   \label{fig:schema-dlist-append}
@@ -417,13 +419,13 @@ parseSList bs i acc = case bs !? i of
         ¤Left err → ¤Left err
         ¤Right child → parseSList bs (endPos child + 1) (child : acc)
 \end{minted}
-\caption{Implementation of the S-expression parser with destinations}
+\caption{Implementation of the S-expression parser without destinations}
 \label{table:impl-parser-naive}
-\end{table}
+% \end{table}
 
-We will see that destinations can bring very significative performance gains with only very little stylistic changes in the code. Accumulators of tail-recursive functions just have to be changed into destinations. Instead of writing elements into a list that will be reversed at the end as we did before, the program in the destination style will directly write the elements into their final location:
+\bigskip
 
-\begin{table}[t]
+% \begin{table}[b]
 \small
 \begin{minted}[linenos,escapeinside=°°]{haskellc}
 parseSListDPS :: ByteString → Int → Dest [SExpr] ⊸ Either Error Int
@@ -441,6 +443,8 @@ parseSListDPS bs i d = case bs !? i of
 \caption{Implementation of the S-expression parser with destinations}
 \label{table:impl-parser-dps}
 \end{table}
+
+We will see that destinations can bring very significative performance gains with only very little stylistic changes in the code. Accumulators of tail-recursive functions just have to be changed into destinations. Instead of writing elements into a list that will be reversed at the end as we did before, the program in the destination style will directly write the elements into their final location:
 
 Code for \mintinline{haskellc}`parseSListDPS` is presented in table~\ref{table:impl-parser-dps}. Let's see what changed compared to the naive implementation:
 
@@ -504,7 +508,7 @@ createR :: () ⊸ Resource   -- no way to indicate that the result must be used 
 consumeR :: Resource ⊸ ()
 
 exampleShouldFail :: () =  -- accepted even though x is consumed twice
-  let x = createR () in consumeR x ;; consumeR x
+  let x = createR ¤() in consumeR x ;; consumeR x
 \end{minted}
 }
 
@@ -702,7 +706,7 @@ The only way to pass a constructor as a parameter to a primop so that the primop
 
 Its common practice to use a \mintinline{haskellc}`Proxy`/\mintinline{haskellc}`Proxy#` to pass a type parameter as an input to a function in Haskell. The problem is, the primop should be resolved at the \emph{STG to C-{}-} stage so it can access info table labels, and at that point, all type information about parameters have been erased. Fortunately, information about the actual return type of a primop is retained that late in the compilation process.
 
-If we cannot pass type literals through the arguments types, let's pass them through the return type! So we add a new polymorphic type \mintinline{haskellc}`InfoPtrPlaceholder# a`. That type has a phantom type parameter but shares the same memory representation as \mintinline{haskellc}`Addr#`. We can then use a type annotation to provide the type-level literal to the primop: \mintinline{haskellc}`reifyInfoPtr# (# #) :: InfoPtrPlaceholder# a` allows the implementation of \mintinline{haskellc}`reifyInfoPtr#` inside the compiler to read the type parameter \mintinline{haskellc}`a` even though it is both phantom and in return position!
+If we cannot pass type literals through the arguments types, let's pass them through the return type! So we add a new polymorphic type \mintinline{haskellc}`InfoPtrPlaceholder# a`. That type has a phantom type parameter but shares the same memory representation as \mintinline{haskellc}`Addr#`. We can then use a type annotation to provide the type-level literal to the primop: \mintinline{haskellc}`reifyInfoPtr# (# #) :: InfoPtrPlaceholder# a` allows the implementation of \mintinline{haskellc}`reifyInfoPtr#` inside the compiler to read the actual value of the type parameter \mintinline{haskellc}`a` even though it is both phantom and in return position!
 
 The gist of this implementation is presented in table~\ref{table:impl-reifyInfoPtr}. The primop pattern-matches on the type \mintinline{haskellc}`resTy` of its return value. In the case it reads a string literal, it resolves the primop call into the label \mintinline{haskellc}`stg_<name>` (this is used in particular to retrieve \mintinline{haskellc}`stg_IND` to allocate indirection heap objects). In the case it reads a lifted data constructor, it resolves the primop call into the label which corresponds to the info table pointer of that constructor.
 
@@ -723,7 +727,7 @@ The internal primop \mintinline{haskellc}`reifyInfoPtr#` that we introduced abov
 
 So we added a new type family \mintinline{haskellc}`LCtorToSymbol` inside GHC that inspects its (type-level) parameter representing a constructor, resolves it into the associated \mintinline{haskellc}`DataCon` structure, and returns a type-level string (kind \mintinline{haskellc}`Symbol`) carrying the constructor name, as presented in table~\ref{table:impl-LCtorToSymbol}.
 
-\begin{table}[!htb]
+\begin{table}[p]
 \small
 \begin{minted}[linenos]{c}
 // compactAddHollow#
@@ -751,7 +755,7 @@ stg_compactAddHollowzh(P_ compact, W_ info) {
 \label{table:impl-compactAddHollow}
 \end{table}
 
-\begin{table}[!htb]
+\begin{table}[p]
 \small
 \begin{minted}[linenos]{haskellc}
 case primop of
@@ -773,7 +777,7 @@ case primop of
 \label{table:impl-reifyInfoPtr}
 \end{table}
 
-\begin{table}[!htb]
+\begin{table}[p]
 \small
 \begin{minted}[linenos]{haskellc}
 matchFamLCtorToSymbol :: [Type] → Maybe (CoAxiomRule, [Type], Type)
@@ -798,11 +802,9 @@ axLCtorToSymbolDef =
 
 All over this article, we talked about programs in both naive style (using regular Haskell constructors) and in DPS style, backed by compact regions.
 
-With DPS versions of the programs, the result is stored in compact regions, which also force strictness (so the whole resulting structure is in normal form, i.e. fully evaluated, inside the region). So it seems logical to compare them to naive versions that also copy their final result inside a compact region.
+With DPS versions of the programs, the result is stored in compact regions, which also force strictness (so the whole resulting structure is automatically fully evaluated inside the region). So it seems logical to compare them to naive versions that also copy their final result inside a compact region.
 
-However, one might argue that for some programs, like \mintinline{haskellc}`map` for lists, having the result of the function copied into a compact region isn't particularly desirable. It might be useful for some use-cases (to reduce GC load), but generally inflates memory allocations.
-
-So for each program, we also benchmarked an alternative naive version (whose name is suffixed with a star) that uses \mintinline{haskellc}`Control.DeepSeq.force` to fully evaluate the result into normal form instead of copying it into a compact region. We displays the result from the starred version when this is to their advantage (and when having the result stored inside a compact region is not particularly desirable).
+However, for programs which don't stress the GC, having the result of the function copied into a compact region isn't particularly desirable and will generally inflates memory allocations. So for each naive implementation, we also benchmarked an alternative version (whose name is suffixed with a star) that uses \mintinline{haskellc}`Control.DeepSeq.force` to fully evaluate the result instead of copying it into a compact region. We displays the result of the starred version when this advantageous for the naive implementation and when having the result stored inside a compact region is not particularly desirable.
 
 All implementations are benchmarked against structures of size $2^{10}$, $2^{13}$ and $2^{16}$.
 
@@ -818,23 +820,23 @@ We compared four implementations.
 
 \mintinline{haskellc}`foldr (++)` has calls to \mintinline{haskellc}`(++)` nested to the right, giving the most optimal context for list concatenation (it should run in $\mathcal{O}(n)$ time).
 
-\mintinline{haskellc}`foldl' (++)` is the worst case for list concatenation, expected to run in  time.
+\mintinline{haskellc}`foldl' (++)` is the worst case for list concatenation, expected to run in $\mathcal{O}(n^2)$ time.
 
-\mintinline[escapeinside=°°]{haskellc}`foldl' concat°$\lambda$°` uses function-backed difference lists, and \mintinline{haskellc}`foldl' concatDPS` uses destination-backed ones; both are expected to run in $\mathcal{O}(n)$ even if calls to concat are nested to the left.
+\mintinline[escapeinside=°°]{haskellc}`foldl' concat°$\lambda$°` uses function-backed difference lists, and \mintinline{haskellc}`foldl' concatDPS` uses destin\-ation-backed ones; both should run in $\mathcal{O}(n)$ even if calls to concat are nested to the left.
 
 We see in part \textbf{A} of figure~\ref{fig:bench-charts} that the destination-backed difference lists have a comparable memory use as the two other linear implementations, and a very slight edge for large data sets (5-10\% fewer allocations), in exchange for being quite slower (2-4$\times$ time).
 
 \paragraph{Parsing S-expressions}
 
-In part \textbf{B} of figure~\ref{fig:bench-charts}, we compared the naive implementation of the S-expression parser and the DPS one (see subsection~\ref{ssec:parser-sexpr}) against a 15,000-lines-long file.
+In part \textbf{B} of figure~\ref{fig:bench-charts}, we compare the naive implementation of the S-expression parser and the DPS one (see~\ref{ssec:parser-sexpr}) against a 15,000-lines-long file.
 
 It is interesting to see that the DPS version makes about 50\% more allocations than the starred naive version, but uses 10\% less memory at its peak (not shown in the figure), and more importantly, spends 38$\times$ less time in garbage collection (with 6$\times$ less bytes copied by the GC). As a result, the DPS version only takes 0.55-0.65$\times$ the time spent by the naive versions, thanks to garbage collection savings. This also indicates that most of the data allocated in the garbage-collected heap by the DPS version just lasts one generation and thus can be discarded very early by the GC, without needing to be copied into the next generation, unlike most nodes allocated by the naive versions.
 
-We can also observe in part 3 of figure~\ref{fig:bench-charts} that copying the result of the naive version in a compact region (which can be desirable for future GC savings, as detailed in subsection~\ref{ssec:parser-sexpr}) makes it even longer, and results in even more total allocations than DPS version.
+We can also observe that copying the result of the naive version in a compact region (which can be desirable for future GC savings, as detailed in subsection~\ref{ssec:parser-sexpr}) takes even more time than using \mintinline{haskellc}`force`, and results in even more total allocations than DPS version.
 
-This benchmark is probably the most significant of the paper: it proves that DPS is a viable technique for some real-world use cases, bringing gains that cannot be obtained easily with other approaches in pure functional programming languages.
+This benchmark is the most significant of the paper and proves that DPS is a viable technique that brings real performance improvements in at least one common use-case.
 
-\paragraph{Relabeling a tree in a breadth-first fashion}\label{par:benchmark-bf-tree-traversal}
+\paragraph{Breadth-first relabeling}\label{par:benchmark-bf-tree-traversal}
 
 We see in part \textbf{C} of figure~\ref{fig:bench-charts} that the destination-based tree traversal is almost one order of magnitude more efficient, both time-wise and memory-wise, compared to the implementation based on \emph{Phases} applicatives presented in~\cite{gibbons_phases_2023}.
 
