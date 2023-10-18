@@ -1,5 +1,5 @@
 """
-    pygments.lexers.haskell_unicode
+    pygments.lexers.hc
     ~~~~~~~~~~~~~~~~~~~~~~~
 
     Lexers for Haskell and related languages.
@@ -16,24 +16,37 @@ from pygments.token import Text, Comment, Operator, Keyword, Name, String, \
     Number, Punctuation, Generic, Whitespace
 from pygments import unistring as uni
 
-__all__ = ['HaskellUnicodeLexer']
+__all__ = ['HC']
 
 
-class HaskellUnicodeLexer(RegexLexer):
+uniLlWithoutD = uni.Ll.replace("d", "")
+
+baseType = r"(?:(?:[abcsr]|lCtor)\b|¤'?[_" + uni.Ll + r"][\w']*|('')?[" + uni.Lu + r"][\w\'#]*|(')[" + uni.Lu + r"][\w\']*|(')\[[^\]]*\]|(')\([^)]*\)|(')[:!#$%&*+.\\/<=>?@^|~-]+)"
+typeApp = lambda b: r"(?:" + b + r"|(?:\s*" + b + r")+)"
+typeList = r"\[" + typeApp(baseType) + r"\]"
+nestedTypeList = r"\[\[" + typeApp(baseType) + r"\]\]"
+taOrListTa = r"(?:" + typeApp(baseType) + r"|" + typeList + r"|" + nestedTypeList + r")"
+taList = typeApp(taOrListTa)
+talTuple = r"(?:\(*\s*,?\s*" + taList + r"\)*)+"
+nestedTypeTuple = r"(?:\(*\s*,?\s*" + talTuple + r"\)*)+"
+finalType = r"(?:" + talTuple + r"|" + nestedTypeTuple + r")"
+
+class HC(RegexLexer):
+    
     """
-    A Haskell lexer based on the lexemes defined in the Haskell 98 Report.
+    A Haskell lexer extended with support for some unicode symbols.
 
     .. versionadded:: 0.8
     """
     name = 'Haskell'
     url = 'https://www.haskell.org/'
-    aliases = ['haskell', 'hs']
+    aliases = ['hc', 'haskellc']
     filenames = ['*.hs']
     mimetypes = ['text/x-haskell']
 
     reserved = ('case', 'class', 'data', 'default', 'deriving', 'do', 'else',
                 'family', 'if', 'in', 'infix[lr]?', 'instance',
-                'let', 'newtype', 'of', 'then', 'type', 'where', '_')
+                'let', 'newtype', 'of', 'then', 'type', 'where', '_', 'forall', '∀') # tbagrel1: added forall
     ascii = ('NUL', 'SOH', '[SE]TX', 'EOT', 'ENQ', 'ACK',
              'BEL', 'BS', 'HT', 'LF', 'VT', 'FF', 'CR', 'S[OI]', 'DLE',
              'DC[1-4]', 'NAK', 'SYN', 'ETB', 'CAN',
@@ -52,20 +65,39 @@ class HaskellUnicodeLexer(RegexLexer):
             (r'\bmodule\b', Keyword.Reserved, 'module'),
             (r'\berror\b', Name.Exception),
             (r'\b(%s)(?!\')\b' % '|'.join(reserved), Keyword.Reserved),
-            (r"'[^\\]'", String.Char),  # this has to come before the TH quote
-            (r'^[_' + uni.Ll + r'][\w\']*', Name.Function),
-            (r"'?[_" + uni.Ll + r"][\w']*", Name),
-            (r"('')?[" + uni.Lu + r"][\w\']*", Keyword.Type),
-            (r"(')[" + uni.Lu + r"][\w\']*", Keyword.Type),
-            (r"(')\[[^\]]*\]", Keyword.Type),  # tuples and lists get special treatment in GHC
-            (r"(')\([^)]*\)", Keyword.Type),  # ..
-            (r"(')[:!#$%&*+.\\/<=>?@^|~-]+", Keyword.Type),  # promoted type operators
+            # (r"'[^\\]'", String.Char),  # this has to come before the TH quote
+            (r"'[^\\]'", Keyword.Type),  # this has to come before the TH quote
+#            (r'^([_' + uniLlWithoutD + r'][\w\']|[_' + uni.Ll + r'][\w\']{2,})', Name.Function), # tbagrel1: functions must be 2 char long not starting with d, or 3+ char long
+            # (r"\(?\b(?:[abcsr]|lCtor)(\.|\)|\]|\,|\b)+", Keyword.Type), # tbagrel1: a, b, c, s, r are type variables
+            # #(r"(?<=(?:[abcsr]|lCtor))\)*,*", Keyword.Type),
+            # (r"¤'?[_" + uni.Ll + r"][\w']*", Keyword.Type),
+            (finalType, Keyword.Type),
+            (r"[_□" + uni.Ll + r"][\w'#]*", Name),
+            (r"¤('')?[" + uni.Lu + r"][\w\'#]*", Name.Class),
+            
+#            (r"(?<=')[" + uni.Lu + r"][\w\']*", Operator),
+            # (r"\(?('')?[" + uni.Lu + r"][\w\']*", Keyword.Type),
+            # (r"(')[" + uni.Lu + r"][\w\']*", Keyword.Type),
+            # (r"\[(?:(?:[abcsr]|lCtor)\b|¤'?[_" + uni.Ll + r"][\w']*|('')?[" + uni.Lu + r"][\w\']*|(')[" + uni.Lu + r"][\w\']*|\[(?:[abcsr]|lCtor)\]|(')\[[^\]]*\]|(')\([^)]*\)|(')[:!#$%&*+.\\/<=>?@^|~-]+)\]\)*", Keyword.Type), # deactivated so that tuple and lists are treated the same at type level
+            # (r"(')\[[^\]]*\]", Keyword.Type),  # tuples and lists get special treatment in GHC
+            # (r"(')\([^)]*\)", Keyword.Type),  # ..
+            # (r"(')[:!#$%&*+.\\/<=>?@^|~-]+", Keyword.Type),  # promoted type operators
+
+            # # need recursive regex support to work
+            # # (r"\((?:\s*(?:(?:[abcsr]|lCtor)\b|¤'?[_" + uni.Ll + r"][\w']*|('')?[" + uni.Lu + r"][\w\']*|(')[" + uni.Lu + r"][\w\']*|\[(?:[abcsr]|lCtor)\]|(')\[[^\]]*\]|(')\([^)]*\)|(')[:!#$%&*+.\\/<=>?@^|~-]+|(?R)))+(?:\s*,(?:\s*(?:(?:[abcsr]|lCtor)\b|¤'?[_" + uni.Ll + r"][\w']*|('')?[" + uni.Lu + r"][\w\']*|(')[" + uni.Lu + r"][\w\']*|\[(?:[abcsr]|lCtor)\]|(')\[[^\]]*\]|(')\([^)]*\)|(')[:!#$%&*+.\\/<=>?@^|~-]+|(?R)))+)*\)", Keyword.Type),
+            # (r"\(?,?(?:\s*)+\)+\,?", Keyword.Type),
+            # (r"(\s*,?\s*(?:\s*(?:(?:[abcsr]|lCtor)\b|¤'?[_" + uni.Ll + r"][\w']*|('')?[" + uni.Lu + r"][\w\']*|(')[" + uni.Lu + r"][\w\']*|\[(?:[abcsr]|lCtor)\]|(')\[[^\]]*\]|(')\([^)]*\)|(')[:!#$%&*+.\\/<=>?@^|~-]+))+\))+\)*", Keyword.Type),
+
+
             #  Operators
-            (r'\\(?![:!#$%&*+.\\/<=>?@^|~-]+)', Name.Function),  # lambda operator
-            (r'(<-|::|->|=>|=)(?![:!#$%&*+.\\/<=>?@^|~-]+)', Operator.Word),  # specials
-            (r':[:!#$%&*+.\\/<=>?@^|~-]*', Keyword.Type),  # Constructor operators
-            (r'[:!#$%&*+.\\/<=>?@^|~-]+', Operator),  # Other operators
+            (r'\\(?![:!#$%&*+.\\/<=>?@^|~-]+)', Operator.Word),  # lambda operator
+            (r'(<-|::|->|=>|=|⊸|→|⇒|←|∀|forall\b)(?![:!#$%&*+.\\/<=>?@^|~-]+)', Operator.Word),  # specials # tbagrel1: added support for some unicode arrows
+            (r'[=@](?![:!#$%&*+.\\/<=>?@^|~-]+)', Operator.Word),
+            (r'[|](?![:!#$%&*+.\\/<=>?@^|~-]+)', Operator.Word),
+#             (r':[!#$%&*+.\\/<=>?@^|~-]*', Keyword.Type),  # Constructor operators
+            (r'[!#$%&*+.\\/<=>?@^|~-;]+', Operator),  # Other operators # tbagrel1: added support for grec interrogation mark
             #  Numbers
+            (r"`?[_" + uni.Ll + r"][\w']*`", Operator),
             (r'0[xX]_*[\da-fA-F](_*[\da-fA-F])*_*[pP][+-]?\d(_*\d)*', Number.Float),
             (r'0[xX]_*[\da-fA-F](_*[\da-fA-F])*\.[\da-fA-F](_*[\da-fA-F])*'
              r'(_*[pP][+-]?\d(_*\d)*)?', Number.Float),
@@ -79,9 +111,22 @@ class HaskellUnicodeLexer(RegexLexer):
             (r"'", String.Char, 'character'),
             (r'"', String, 'string'),
             #  Special
-            (r'\[\]', Keyword.Type),
-            (r'\(\)', Name.Builtin),
-            (r'[][(),;`{}]', Punctuation),
+            (r'\[\]', Name.Class),
+            (r'¤\(\)', Name.Class),
+            (r'¤\(', Keyword.Type),
+            (r'¤\)', Keyword.Type),
+            (r'¤\[', Keyword.Type),
+            (r'¤\]', Keyword.Type),
+            (r'[:,]', Name.Class),
+            # (r'\(:\)', Name.Class),
+            # (r'\(,\)', Name.Class),
+            (r'\(\)', Keyword.Type), # tbagrel1: changed unit to Keyword.Type
+            (r'[][)(]', Name.Class),
+            # \((?:[^)(]+|(?R))(?:\s*,\s*(?:[^)(]+|(?R)))+\)
+
+            #(r'\((?=(?:[^)(]+|(?R))(?:\s*,\s*(?:[^)(]+|(?R)))+\))', Operator), # match opening tuple paren
+
+            (r'[;`{}]', Punctuation),
         ],
         'import': [
             # Import statements

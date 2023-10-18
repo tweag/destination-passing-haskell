@@ -56,7 +56,7 @@ ENTRY
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 FUNCTION{fr.and}{		%% le "et" entre les deux derniers auteurs
-" et "
+" and "
 }
 
 FUNCTION{fr.editeur}{		%% ", \'editeur" au singulier, ou " (\'editeur)"...
@@ -135,25 +135,25 @@ FUNCTION{fr.auteurs.style}{
 }
 
 FUNCTION{fr.ponctuation.apres.auteurs}{ %% Comme son nom l'indique...
-" : "
+": "
 }
 
 FUNCTION{fr.deuxpoints}{	%% separateur num. journal/num. pages
 "\string:\penalty500\relax "
 }
 
-MACRO {jan} {"janvier"}
-MACRO {feb} {"f\'evrier"}
-MACRO {mar} {"mars"}
-MACRO {apr} {"avril"}
-MACRO {may} {"mai"}
-MACRO {jun} {"juin"}
-MACRO {jul} {"juillet"}
-MACRO {aug} {"ao\^ut"}
-MACRO {sep} {"septembre"}
-MACRO {oct} {"octobre"}
-MACRO {nov} {"novembre"}
-MACRO {dec} {"d\'ecembre"}
+MACRO {jan} {"January"}
+MACRO {feb} {"February"}
+MACRO {mar} {"March"}
+MACRO {apr} {"April"}
+MACRO {may} {"May"}
+MACRO {jun} {"June"}
+MACRO {jul} {"July"}
+MACRO {aug} {"August"}
+MACRO {sep} {"September"}
+MACRO {oct} {"October"}
+MACRO {nov} {"November"}
+MACRO {dec} {"December"}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

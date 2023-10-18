@@ -31,6 +31,7 @@ clean:
 	rm -f jflart-programming-with-destinations.pdf
 	rm -f jflart-programming-with-destinations.lhs
 	rm -f jflart-programming-with-destinations.tar.gz
+	rm -rf _minted-jflart-programming-with-destinations
 
 # %.tex: %.mng $(OTT_FILES)
 # 	ott $(OTT_OPTS) -tex_filter $< $@ $(OTT_FILES)
@@ -49,7 +50,7 @@ clean:
 jflart-programming-with-destinations.tar.gz: jflart-programming-with-destinations.tex jflart-programming-with-destinations.bbl jflart.cls
 	tar -cvzf $@ $^
 
-%.pdf %.bbl : %.tex bibliography.bib
+%.pdf %.bbl : %.tex bibliography.bib pygmentize_local hc.py jflart.cls
 	cd $(dir $<) && latexmk $(notdir $*)
 
 nix::

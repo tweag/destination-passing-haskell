@@ -30,6 +30,7 @@ pkgs.mkShell
           xpatch
           ulem
           placeins
+          # regexpatch
           # for lhs2tex
           # lazylist polytable
 
