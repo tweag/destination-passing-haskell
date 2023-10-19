@@ -108,7 +108,7 @@ The Haskell programming language is equipped with support for linear types throu
 \item A first implementation of destinations for Haskell relying on so-called compact regions (section~\ref{sec:implementation}), together with a performance evaluation (section~\ref{sec:benchmark}). The whole implementation is available in~\cite{custom_ghc} and~\cite{linear_dest}.
 \end{itemize}
 
-\section{A short primer on linear types}\label{ssec:intro-linearity}
+\section{A short primer on linear types}\label{sec:intro-linearity}
 
 Linear Haskell~\cite{bernardy_linear_2018} introduces the linear function arrow, \mintinline{haskellc}`a ⊸ b`, that guarantees that the argument of the function will be consumed exactly once when the result of the function is consumed exactly once. On the other hand, the regular function arrow \mintinline{haskellc}`a → b` doesn't guarantee how many times its argument will be consumed when its result is consumed once.
 
@@ -303,7 +303,7 @@ mapAccumBFS f s0 tree =
 
 Note that signatures of \mintinline{haskellc}`mapAccumBFS` and \mintinline{haskellc}`relabelDPS` don't involve linear types. Linear types only appear in the inner loop \mintinline{haskellc}`go`, which manipulates destinations. Linearity enforces the fact that every destination ever put in the queue is eventually filled at some point, which guarantees that the output tree is complete after the function has run.
 
-Because the state-transforming function \mintinline{haskellc}`s → a → (s, b)` is non-linear, the leaves of the original tree (that are stored together with destinations in the queue) won't be consumed in a linear fashion. However, as we said, destinations must be all consumed linearly, and for that to hold, the container they are put in must be consumed linearly too. So we wrap the nodes of the input tree in \mintinline{haskellc}`¤Ur`: as detailed in subsection~\ref{ssec:intro-linearity}, thanks to \mintinline{haskellc}`¤Ur`, queue pairs will appeared to be consumed linearly even though the input tree nodes aren't.
+Because the state-transforming function \mintinline{haskellc}`s → a → (s, b)` is non-linear, the leaves of the original tree (that are stored together with destinations in the queue) won't be consumed in a linear fashion. However, as we said, destinations must be all consumed linearly, and for that to hold, the container they are put in must be consumed linearly too. So we wrap the nodes of the input tree in \mintinline{haskellc}`¤Ur`: as detailed in section~\ref{sec:intro-linearity}, thanks to \mintinline{haskellc}`¤Ur`, queue pairs will appeared to be consumed linearly even though the input tree nodes aren't.
 
 This example shows how destinations can be used even in a non-linear setting in order to improve the expressiveness of the language. This more natural and less convoluted implementation of breadth-first traversal also presents great performance gains compared to the fancy functional implementation from~\cite{gibbons_phases_2023}, as detailed in section~\ref{sec:benchmark}.
 
@@ -534,7 +534,7 @@ exampleFail :: () = withR (\x → consumeR °\mold{x}° ; consumeR °\mold{x}°
 
 The \mintinline{haskellc}`Resource` type is in positive position in the signature of \mintinline{haskellc}`withR`, so that function should somehow know how to produce a \mintinline{haskellc}`Resource`, but this is opaque for the user. As the consumer of the resource is now explicitly passed to \mintinline{haskellc}`withR` (as a callback), \mintinline{haskellc}`withR` can enforce that this callback will use the resource exactly once, through its signature.
 
-Still, this is not enough; because \mintinline{haskellc}`\x → x` is indeed a linear callback, one could use \mintinline{haskellc}`withR (\x → x)` to leak a \mintinline{haskellc}`Resource`, and then use it in a non-linear fashion in the outside world. Hence we must forbid the resource from appearing anywhere in the return type of the callback. To do that, we will ask the return type to be wrapped in \mintinline{haskellc}`Ur`: because the resource comes from the left of a linear arrow, and doesn't implement \mintinline{haskellc}`Movable`, it cannot be wrapped in \mintinline{haskellc}`Ur` without breaking linearity, so won't be able to escape (see subsection~\ref{ssec:intro-linearity}). On the other hand, a \mintinline{haskellc}`Movable` value of type \mintinline{haskellc}`()` or \mintinline{haskellc}`Int` can be returned:
+Still, this is not enough; because \mintinline{haskellc}`\x → x` is indeed a linear callback, one could use \mintinline{haskellc}`withR (\x → x)` to leak a \mintinline{haskellc}`Resource`, and then use it in a non-linear fashion in the outside world. Hence we must forbid the resource from appearing anywhere in the return type of the callback. To do that, we will ask the return type to be wrapped in \mintinline{haskellc}`Ur`: because the resource comes from the left of a linear arrow, and doesn't implement \mintinline{haskellc}`Movable`, it cannot be wrapped in \mintinline{haskellc}`Ur` without breaking linearity, so won't be able to escape (see section~\ref{sec:intro-linearity}). On the other hand, a \mintinline{haskellc}`Movable` value of type \mintinline{haskellc}`()` or \mintinline{haskellc}`Int` can be returned:
 \begin{unbreakable}
 {\small
 \begin{minted}[linenos,escapeinside=°°]{haskellc}
@@ -684,7 +684,7 @@ The desired outcome is to only allocate a root receiver in the region for actual
   \label{fig:schema-alloc-region}
 \end{figure}
 
-The implementation of \mintinline{haskellc}`fromIncomplete` is then relatively straightforward. It allocate a hollow \mintinline{haskellc}`¤Ur (□, □)` in the region, write the address of the now complete structure into it, and return the \mintinline{haskellc}`¤Ur`.
+The implementation of \mintinline{haskellc}`fromIncomplete_` is then relatively straightforward. It allocates a hollow \mintinline{haskellc}`¤Ur □` in the region, writes the address of the now complete structure into it, and returns the \mintinline{haskellc}`¤Ur`.
 
 \subsection{Deriving \texttt{fill} for all constructors with \texttt{Generics}}\label{ssec:impl-generics}
 
@@ -713,13 +713,13 @@ With a bit of type-level programming\footnote{see \texttt{src/Compact/Pure/Inter
 
 We will see here how to allocate a hollow heap object for a given constructor, but let's first take a detour to give more context about the internals of the compiler.
 
-Haskell's runtime system (RTS) is written in a mix of C and C-{}-. The RTS has many roles, among which managing threads, organizing garbage collection or managing compact regions. It also defines various primitive operations, named \emph{external primops}, that are expose the RTS capabilities as normal functions. Despite all its responsibilities, however, the RTS is not responsible for allocation of normal constructors (built in the garbage-collected heap). One reason is that it doesn't have all the information needed to build a constructor heap object, namely, the info table associated to that constructor.
+Haskell's runtime system (RTS) is written in a mix of C and C-{}-. The RTS has many roles, among which managing threads, organizing garbage collection or managing compact regions. It also defines various primitive operations, named \emph{external primops}, that expose the RTS capabilities as normal functions. Despite all its responsibilities, however, the RTS is not responsible for allocation of normal constructors (built in the garbage-collected heap). One reason is that it doesn't have all the information needed to build a constructor heap object, namely, the info table associated to that constructor.
 
-The info table is what defines both the layout and behavior of a heap object. All heap objects representing a same constructor (let's say \mintinline{haskellc}`¤Just`) have the same info table, even when the associated types are different (e.g. \mintinline{haskellc}`Maybe Int` and \mintinline{haskellc}`Maybe Bool`). Heap objects representing this constructor point to a label \mintinline{haskellc}`<ctor>_con_info` that will be later resolved by the linker into an actual pointer to the shared info table.
+The info table is what defines both the layout and behavior of a heap object. All heap objects representing a same constructor (let's say \mintinline{haskellc}`¤Just`) have the same info table, even when the associated types are different (e.g. \mintinline{haskellc}`Maybe Int` and \mintinline{haskellc}`Maybe Bool`). Heap objects representing this constructor point to a label \mintinline{text}`<ctor>_con_info` that will be later resolved by the linker into an actual pointer to the shared info table.
 
 The RTS is in fact a static piece of code that is compiled once when GHC is built. The RTS has no direct way to access the information emitted during the compilation of a program. In other words, when the RTS runs, it has no way to inspect the source of the program that it runs and info table labels have long been replaced by actual pointers so it cannot look for them either.
 
-As a result, I've needed to extend the RTS with two primitives to be able allocate a hollow constructor heap object:
+As a result, I've needed to extend GHC with two primitives to be able allocate a hollow constructor heap object:
 
 \begin{itemize}
 \item one \emph{external primop} to allocate space into a compact region for a hollow constructor. This primop will be implemented inside the RTS as it is the only one who knows how to deal with compact regions;
@@ -738,7 +738,7 @@ As announced, this primop takes the info table pointer of the constructor to all
 
 The only way, in Haskell, to pass a constructor to a primop so that the primop can inspect it, is to lift the constructor into a type-level literal. Its common practice to use a \mintinline{haskellc}`Proxy a` (the unit type with a phantom type parameter) to pass the type \mintinline{haskellc}`a` as an input to a function. Unfortunately, due to a quirk of the compiler, primops don't have access to the type of their arguments. They can, however, access their return type. So I'm using a phantom type \mintinline{haskellc}`InfoPtrPlaceholder# a` as the return type, to pass the contructor as an input!
 
-The gist of this implementation is presented in Table~\ref{table:impl-reifyInfoPtr}. The primop \mintinline{haskellc}`reifyInfoPtr#` pattern-matches on the type \mintinline{haskellc}`resTy` of its return value. In the case it reads a string literal, it resolves the primop call into the label \mintinline{haskellc}`stg_<name>` (this is used in particular to retrieve \mintinline{haskellc}`stg_IND` to allocate indirection heap objects). In the case it reads a lifted data constructor, it resolves the primop call into the label which corresponds to the info table pointer of that constructor. The returned \mintinline{haskellc}`InfoPtrPlaceholder# a` can later be converted to an back to an \mintinline{haskellc}`Addr#` using the \mintinline{haskellc}`unsafeCoerceAddr` function.
+The gist of this implementation is presented in Table~\ref{table:impl-reifyInfoPtr}. The primop \mintinline{haskellc}`reifyInfoPtr#` pattern-matches on the type \mintinline{haskellc}`resTy` of its return value. In the case it reads a string literal, it resolves the primop call into the label \mintinline{text}`stg_<name>` (this is used in particular to retrieve \mintinline{haskellc}`stg_IND` to allocate indirection heap objects). In the case it reads a lifted data constructor, it resolves the primop call into the label which corresponds to the info table pointer of that constructor. The returned \mintinline{haskellc}`InfoPtrPlaceholder# a` can later be converted to an back to an \mintinline{haskellc}`Addr#` using the \mintinline{haskellc}`unsafeCoerceAddr` function.
 
 As an example, the following piece of code uses the two aforementioned primops to allocate a hollow \mintinline{haskellc}`¤Just` constructor in a compact region:
 
@@ -863,7 +863,7 @@ In part \textbf{B} of Figure~\ref{fig:bench-charts}, we compare the naive implem
 
 It is interesting to see that the DPS version makes about 50\% more allocations than the starred naive version, but uses 10\% less memory at its peak (not shown in the figure), and more importantly, spends 38$\times$ less time in garbage collection (with 6$\times$ less bytes copied by the GC). As a result, the DPS version only takes 0.55-0.65$\times$ the time spent by the naive versions, thanks to garbage collection savings. This also indicates that most of the data allocated in the garbage-collected heap by the DPS version just lasts one generation and thus can be discarded very early by the GC, without needing to be copied into the next generation, unlike most nodes allocated by the naive versions.
 
-We can also observe that copying the result of the naive implementation in a compact region (which can be desirable for future GC savings, as detailed in subsection~\ref{ssec:parser-sexpr}) takes even more time than using \mintinline{haskellc}`force`, and results in even more total allocations than DPS version.
+We can also observe that copying the result of the naive implementation in a compact region (which can be desirable for future GC savings, as detailed in subsection~\ref{ssec:parser-sexpr}) takes even more time than using \mintinline{haskellc}`force`, and results in even more total allocations than the DPS version.
 
 This benchmark is the most significant of the paper and proves that DPS is a viable technique that brings real performance improvements in at least one common use-case.
 
