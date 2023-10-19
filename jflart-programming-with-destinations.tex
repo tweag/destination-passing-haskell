@@ -3,6 +3,7 @@
 \usepackage[T1]{fontenc}
 \usepackage{xpatch}
 \usepackage{minted}
+\usemintedstyle{tango}
 \usepackage{ tipa }
 \usepackage{float}
 \usepackage[normalem]{ulem}
@@ -10,6 +11,8 @@
 \usepackage{newunicodechar}
 %\usepackage[section]{placeins}
 %\addbibresource{bibliography.bib}
+\usepackage{enumitem}
+\setlist[itemize]{topsep=0.5ex,itemsep=-0.5ex,partopsep=1ex,parsep=1ex}
 
 % Numéro et année des JFLAs visées par l'article, obligatoire.
 \jfla{35}{2024}
@@ -34,9 +37,9 @@
 \newcommand{\mpar}{\text{\,\textramshorns\,}}
 \newcommand{\dest}{-\prec}
 \newcommand{\TODO}[1]{{\color{red}\large #1}}
-\newcommand{\mnew}[1]{\colorbox{green}{#1}}
+\newcommand{\mnew}[1]{\colorbox{green!50}{#1}}
 \newcommand{\muline}[1]{\uline{#1}}
-\newcommand{\mold}[1]{\colorbox{red}{#1}}
+\newcommand{\mold}[1]{\colorbox{red!50}{#1}}
 \newunicodechar{⊸}{\ensuremath{\multimap}}
 \newunicodechar{→}{\ensuremath{\to}}
 \newunicodechar{←}{\ensuremath{\leftarrow}}
@@ -53,35 +56,37 @@
 \xpatchcmd{\mintinline}{\minted@fvset}{\minted@fvset\dontdofcolorbox}{}{} % see https://tex.stackexchange.com/a/401250/
 \makeatother
 \renewcommand{\MintedPygmentize}{./pygmentize_local}
+\newlength{\currentparskip}
+\newenvironment{unbreakable}
+{%
+  \setlength{\currentparskip}{\parskip}% Save current \parskip
+  \setlength{\parskip}{\currentparskip}% Save current \parskip
+  \par\vspace{0.5\baselineskip}% Add possible separation
+  \noindent\begin{minipage}{\textwidth}%
+    \setlength{\parskip}{\currentparskip}% Restore current \parskip
+  %\medskip%
+}
+{%
+  \end{minipage}%
+  \par\vspace{0.5\baselineskip}% Add possible vertical separation
+}
 
 \begin{document}
+
 
 \maketitle
 
 \begin{abstract}
-Destination-passing style programming introduces destinations, which represents the address of a write-once memory cell. Those destinations can be passed as function parameters, and thus enable the caller of a function to keep control over memory management: the body of the called function will just be responsible of filling that memory cell. This is especially useful in functional programming languages, in which the body of a function is typically responsible for allocation of the result value.
+Destination-passing style programming introduces destinations, which represent the address of a write-once memory cell. Those destinations can be passed as function parameters, and thus enable the caller of a function to keep control over memory management: the body of the called function will just be responsible of filling that memory cell. This is especially useful in functional programming languages, in which the body of a function is typically responsible for allocation of the result value.
 
 Programming with destination in Haskell is an interesting way to improve performance of critical parts of some programs, without sacrificing memory guarantees. Indeed, thanks to a linearly-typed API I present, a write-once memory cell cannot be left uninitialized before being read, and is still disposed of by the garbage collector when it is not in use anymore, eliminating the risk of uninitialized read, memory leak, or double-free errors that can arise when memory is managed manually.
 
-In this article, I present an implementation of destinations for Haskell, which relies on so-called compact regions. I demonstrate, in particular, a 15-40\% improvement over memory allocation in a simple parser example, and 0-50\% improvement in run time.
+In this article, I present an implementation of destinations for Haskell, which relies on so-called compact regions. I demonstrate, in particular, a simple parser example for which the destination-based version uses 10\% less memory and takes only 60\% of the time of its naive counterpart.
 \end{abstract}
 
 %\tableofcontents{}
 
 \TODO{[] Link repo? -> software heritage}\\
-
-\TODO{Issues formatting}
-\TODO{r used as variable}
-\TODO{char detected as type}
-\TODO{char with escape sequence}
-\TODO{add lCtor, k}
-\TODO{\# in type name}
-\TODO{Add \.? to type variables}
-
-\TODO{Cut map from benchmarks \& add a sentence in DList/related work about it}
-\TODO{Change toc in intro by "set expectations" paragraph}
-\TODO{Paragraph instead of subsections for benchmarks}
-
 \TODO{reparler de map quelque part}
 
 \section{Introduction}
@@ -96,7 +101,7 @@ In this paper, I design a destination API whose memory safety (write-once model)
 
 The Haskell programming language is equipped with support for linear types through its main compiler, \emph{GHC}, since version 9.0.1~\cite{bernardy_linear_2018}. But Haskell is also a \emph{pure} functional language, which means that side effects are only safe to produce inside monadic functions. This led me to set a slightly more refined goal: I wanted to hide impure memory effects related to destinations behind a \emph{pure} Haskell API, and make the whole safe through the linear type discipline. Although the theoretical proofs of type safety haven't been made yet, the early practical results seem to indicate that I achieved that goal despite the technical challenges that arose. The purity of the API makes it very practical to partially adopt DPS programming in a codebase, compared to a monadic API which would be ``contaminating''.
 
-\paragraph{The main contributions} of this paper are
+\paragraph{The main contributions of this paper are}
 \begin{itemize}
 \item A linearly-typed API for destinations that let us build and manipulate data structures with holes while exposing a pure interface (section~\ref{sec:api})
 \item A first implementation of destinations for Haskell relying on so-called compact regions (section~\ref{sec:implementation}), together with a performance evaluation (section~\ref{sec:benchmark}).
@@ -134,56 +139,15 @@ Linked lists are a staple of functional programming, but they aren't efficient f
 
 In an imperative context, it would be quite easy to concatenate linked lists efficiently. One just have to keep both a pointer to the root and to the last \emph{cons} cell of each list. Then, to concatenate two lists, one just have to mutate the last \emph{cons} cell of the first one to point to the root of the second list.
 
-It isn't possible to do so in an immutable functional context though. Instead, \emph{Difference lists} can be used: they are structures that are fast to convert into lists ($\mathcal{O}(1)$ amortized) and tend to emulate the idea of having a mutable (here, write-once) last \emph{cons} cell. Usually, a difference list \mintinline{haskellc}`x1 : ... : xn : □` is encoded by the function \mintinline{haskellc}`\ys -> x1 : ... : xn : ys` taking a last element \mintinline{haskellc}`ys :: [a]` and returning a value of type \mintinline{haskellc}`[a]` too.
+It isn't possible to do so in an immutable functional context though. Instead, \emph{difference lists} can be used: they are structures that are fast to convert into lists ($\mathcal{O}(1)$ amortized) and tend to emulate the idea of having a mutable (here, write-once) last \emph{cons} cell. Usually, a difference list \mintinline{haskellc}`x1 : ... : xn : □` is encoded by the function \mintinline{haskellc}`\ys -> x1 : ... : xn : ys` taking a last element \mintinline{haskellc}`ys :: [a]` and returning a value of type \mintinline{haskellc}`[a]` too.
 
 With such representation, concatenation is function composition: \mintinline{haskellc}`f1 <> f2 = f1 . f2`, and we have \mintinline{haskellc}`mempty = id`\footnote{\mintinline{haskellc}`mempty` and \mintinline{haskellc}`<>` are the usual notations for neutral element and binary operation of a monoid in Haskell}, \mintinline{haskellc}`toList f = f []` and \mintinline{haskellc}`fromList xs = \ys → xs ++ ys`.
 
-In DPS, instead of encoding the concept of a write-once hole with a function, we can represent the hole as a first-class object with a \emph{destination}. A difference list now become an actual data structure in memory --- not just a pending computation --- that has two handles: one to the root of the list of type \mintinline{haskellc}`[a]`, and one to the yet-to-be-filled hole in the last cons cell, represented by a destination of type \mintinline{haskellc}`Dest [a]`.
+In DPS, instead of encoding the concept of a write-once hole with a function, we can represent the hole of type \mintinline{haskellc}`[a]` as a first-class object with a \emph{destination} of type \mintinline{haskellc}`Dest [a]`. A difference list now become an actual data structure in memory --- not just a pending computation --- that has two handles: one to the root of the list of type \mintinline{haskellc}`[a]`, and one to the yet-to-be-filled hole in the last cons cell, represented by the destination of type \mintinline{haskellc}`Dest [a]`.
 
 With the function encoding, it isn't possible to read the list until a last element of type \mintinline{haskellc}`[a]` have been supplied to complete it. With the destination representation, this constraint must persists: the actual list \mintinline{haskellc}`[a]` shouldn't be readable until the accompanying destination is filled, as pattern-matching on the hole would lead to a dreaded \emph{segmentation fault}. This constraint is embodied by the \mintinline{haskellc}`Incomplete a b` type of our destination API: \mintinline{haskellc}`b` is what needs to be linearly consumed to make the \mintinline{haskellc}`a` readable. Most of the time, the \mintinline{haskellc}`b` side carries the destinations of the structure. A difference list is then \mintinline{haskellc}`type DList a = Incomplete [a] (Dest [a])`: the \mintinline{haskellc}`Dest [a]` must be filled (with a \mintinline{haskellc}`[a]`) to get a readable \mintinline{haskellc}`[a]`.
 
 The implementation of destination-backed difference lists is presented in table~\ref{table:impl-dlist}.
-\begin{table}[t]
-\small
-\begin{minted}[linenos]{haskellc}
-data [a] = {- nil constructor -} [] | {- cons constructor -} (:) a [a]
-
-type DList a = Incomplete [a] (Dest [a])
-
-alloc :: DList a
-
-append :: DList a ⊸ a → DList a
-append i x =
-  i <&> \d → case fill @'(:) d of
-    (dh, dt) → fillLeaf x dh ;; dt
-
-concat :: DList a ⊸ DList a ⊸ DList a
-concat i1 i2 = i1 <&> \dt1 → fillComp i2 dt1
-
-toList :: DList a ⊸ [a]
-toList i = fromIncomplete_' (i <&> \dt → fill @'[] dt)
-\end{minted}
-\caption{Implementation of difference lists with destinations}
-\label{table:impl-dlist}
-\end{table}
-
-\begin{figure}[p]\centering
-  \includegraphics[width=9cm]{fillCons.png}
-  \caption{Memory behavior of \mintinline{haskellc}`fill @'(:) :: Dest [a] ⊸ (Dest a, Dest [a])`}
-  \label{fig:schema-fillCons}
-\end{figure}
-
-\begin{figure}[p]\centering
-  \includegraphics[width=7.5cm]{fillNil.png}
-  \caption{Memory behavior of \mintinline{haskellc}`fill @'[] :: Dest [a] ⊸ ()`}
-  \label{fig:schema-fillNil}
-\end{figure}
-
-\begin{figure}[p]\centering
-  \includegraphics[width=8.5cm]{fillLeaf.png}
-  \caption{Memory behavior of \mintinline{haskellc}`fillLeaf :: a → Dest [a] ⊸ ()`}
-  \label{fig:schema-fillLeaf}
-\end{figure}
 
 % Doesn't bring much more compared to fig:schema-dlist-concat
 % \begin{figure}[t]\centering
@@ -192,29 +156,58 @@ toList i = fromIncomplete_' (i <&> \dt → fill @'[] dt)
 %   \label{fig:schema-fillComp}
 % \end{figure}
 
+\begin{table}[p]
+  \small
+  \begin{minted}[linenos]{haskellc}
+  data [a] = {- nil constructor -} [] | {- cons constructor -} (:) a [a]
+  
+  type DList a = Incomplete [a] (Dest [a])
+  
+  alloc :: DList a
+  
+  append :: DList a ⊸ a → DList a
+  append i x =
+    i <&> \d → case fill @'(:) d of
+      (dh, dt) → fillLeaf x dh ;; dt
+  
+  concat :: DList a ⊸ DList a ⊸ DList a
+  concat i1 i2 = i1 <&> \dt1 → fillComp i2 dt1
+  
+  toList :: DList a ⊸ [a]
+  toList i = fromIncomplete_' (i <&> \dt → fill @'[] dt)
+  \end{minted}
+  \caption{Implementation of difference lists with destinations}
+  \label{table:impl-dlist}
+  \end{table}
+
 \begin{figure}[p]\centering
-  \includegraphics[width=4.2cm]{alloc.png}
-  \caption{Memory behavior of \mintinline{haskellc}`alloc`}
-  \label{fig:schema-alloc}
+  \hspace{-0.5cm}\begin{minipage}{0.3\textwidth}
+    \includegraphics[width=4cm]{alloc.png}
+    \caption{\mintinline{haskellc}`alloc`}
+    \label{fig:schema-alloc}
+  \end{minipage}\hspace{0.5cm}%
+  \begin{minipage}{0.7\textwidth}
+    \includegraphics[width=9.7cm]{dlist-toList.png}
+    \caption{Memory behavior of \mintinline{haskellc}`toList i`}
+    \label{fig:schema-dlist-toList}
+  \end{minipage}
 \end{figure}
 
 \begin{figure}[p]\centering
-  \includegraphics[width=14cm]{dlist-append.png}
+  \includegraphics[width=13.8cm]{dlist-append.png}
   \caption{Memory behavior of \mintinline{haskellc}`append alloc 1`}
   \label{fig:schema-dlist-append}
 \end{figure}
 
-\begin{figure}[t]\centering
-  \includegraphics[width=13.5cm]{dlist-concat.png}
+\begin{figure}[p]\centering
+  \includegraphics[width=13cm]{dlist-concat.png}
   \caption{Memory behavior of \mintinline{haskellc}`concat i1 i2`}
   \label{fig:schema-dlist-concat}
 \end{figure}
 
-\begin{figure}[t]\centering
-  \includegraphics[width=11.5cm]{dlist-toList.png}
-  \caption{Memory behavior of \mintinline{haskellc}`toList i`}
-  \label{fig:schema-dlist-toList}
-\end{figure}
+% \begin{figure}[p]\centering
+
+% \end{figure}
 
 \begin{itemize}
   \item \mintinline{haskellc}`alloc` returns a
@@ -252,7 +245,7 @@ toList i = fromIncomplete_' (i <&> \dt → fill @'[] dt)
 
 This simplified API for difference lists still lacks some linearity requirements to make it write-once/immutable. In particular, the result of \mintinline{haskellc}`alloc` should be used linearly but this isn't enforced by this API, and as a result, one could fill the embedded destination twice. Linearity concerns will be addressed in section~\ref{ssec:api-linearity}.
 
-As we see, thanks to destinations, we can write functions whose implementation is closer to their intended memory behavior (here, implementing data structures with holes), and get comparable or sometimes better performance than the implementations based on pure functional techniques. A performance report is available in section~\ref{sec:benchmark}.\TODO{Arnaud: thought: I don't have time to make such changes tonight, but I feel that there are a few things that can be improved in this section. First it would be better for the reader to find the pictures of the dlist functions first before seeing that of the fill functions and such (maybe only these actually in this section, and you could explain the fill functions in the next?). Second there probably should be a comment about linearity, and a forward link to the section that explains the API in details. Third, I don't think that saying that the performance are as good as the functional encoding is sending the right message (even though you have to admit that your implementation doesn't make it quite obvious that the destination-based implementation is better).}
+As we see, thanks to destinations, we can write functions whose implementation is closer to their intended memory behavior (here, implementing data structures with holes), and get comparable or sometimes better performance than the implementations based on pure functional techniques. A performance report is available in section~\ref{sec:benchmark}.\TODO{Arnaud: thought: I don't have time to make such changes tonight, but I feel that there are a few things that can be improved in this section. Maybe only explain the fill functions in the next?. Third, I don't think that saying that the performance are as good as the functional encoding is sending the right message (even though you have to admit that your implementation doesn't make it quite obvious that the destination-based implementation is better).}
 
 \subsection{Breadth-first tree traversal}\label{ssec:bf-tree-traversal}
 
@@ -506,6 +499,7 @@ Conversely, the function \mintinline{haskellc}`toIncomplete` takes a non-linear 
 
 In Haskell, types aren't linear by themselves in Linear Haskell. Instead, functions can be made to use their arguments linearly or not. So in direct style, where the producer of a resource isn't aware of the consumers, there is no way to state that the resource must be used exactly once:
 
+\begin{unbreakable}
 {\small
 \begin{minted}[linenos]{haskellc}
 createR :: () ⊸ Resource   -- no way to indicate that the result must be used once
@@ -515,9 +509,11 @@ exampleShouldFail :: () =  -- accepted even though x is consumed twice
   let x = createR ¤() in consumeR x ;; consumeR x
 \end{minted}
 }
+\end{unbreakable}
 
 The solution is to make the production of the resource implicit but force the consumers to become explicit so their signature can be checked:
 
+\begin{unbreakable}
 {\small
 \begin{minted}[linenos,escapeinside=°°]{haskellc}
 withR :: (Resource ⊸ a) ⊸ a
@@ -526,10 +522,12 @@ consumeR :: Resource ⊸ ()
 exampleFail :: () = withR (\x → consumeR °\mold{x}° ;; consumeR °\mold{x}°) -- not linear
 \end{minted}
 }
+\end{unbreakable}
 
 The \mintinline{haskellc}`Resource` type is in positive position in the signature of \mintinline{haskellc}`withR`, so that function should somehow know how to produce a \mintinline{haskellc}`Resource`, but this is opaque for the user. As the consumer of the resource is now explicitly passed to \mintinline{haskellc}`withR` (as a callback), \mintinline{haskellc}`withR` can enforce that this callback will use the resource exactly once, through its signature.
 
 Still, this is not enough; because \mintinline{haskellc}`\x → x` is indeed a linear callback, one could use \mintinline{haskellc}`withR (\x → x)` to leak a \mintinline{haskellc}`Resource`, and then use it in a non-linear fashion in the outside world. Hence we must forbid the resource from appearing anywhere in the return type of the callback. To do that, we will ask the return type to be wrapped in \mintinline{haskellc}`Ur`: because the resource comes from the left of a linear arrow, and doesn't implement \mintinline{haskellc}`Movable`, it cannot be wrapped in \mintinline{haskellc}`Ur` without breaking linearity, so won't be able to escape (see subsection~\ref{ssec:intro-linearity}). On the other hand, a \mintinline{haskellc}`Movable` value of type \mintinline{haskellc}`()` or \mintinline{haskellc}`Int` can be returned:
+\begin{unbreakable}
 {\small
 \begin{minted}[linenos,escapeinside=°°]{haskellc}
 withR' :: (Resource ⊸ Ur a) ⊸ Ur a
@@ -539,6 +537,7 @@ exampleOk'   :: Ur ()       = withR' (\x → let u :: () = consumeR x' in move u
 exampleFail' :: Ur Resource = withR' (\x → °\mold{¤Ur x}°) -- not linear
 \end{minted}
 }
+\end{unbreakable}
 
 This explicit \emph{scope function} trick will no longer be necessary when linear constraints will land in GHC (see \cite{spiwack_linearly_2022}). In the meantime, this principle have been used to ensure safety of the DPS implementation in Haskell.
 
@@ -560,7 +559,7 @@ This explicit \emph{scope function} trick will no longer be necessary when linea
 
 If an \mintinline{haskellc}`Incomplete` object is used linearly, then its destinations will be written to exactly once. Since the only way to write to destination is \mintinline{haskellc}`fmap`, which consumes the destination linearly. So we need to unsure that \mintinline{haskellc}`Incomplete` objects are used linearly. For that, we introduce a new token type \mintinline{haskellc}`Token`. A token can be linearly exchanged one for one with an \mintinline{haskellc}`Incomplete` of any type through \mintinline{haskellc}`alloc`, and can be linearly duplicated with \mintinline{haskellc}`dup2` or linearly deleted with \mintinline{haskellc}`consume`. However, it cannot be linearly stored in \mintinline{haskellc}`Ur` as it doesn't implement \mintinline{haskellc}`Movable`.
 
-As in the example above, we just ensure that \mintinline{haskellc}`withToken :: ∀ a. (Token ⊸ Ur a) ⊸ Ur a` is the only source of \mintinline{haskellc}`Token`s around. Now, to produce an \mintinline{haskellc}`Incomplete` with \mintinline{haskellc}`alloc`, one must get a token first, so has to be in the scope of a callback which is passed to \mintinline{haskellc}`withToken`. Putting either a \mintinline{haskellc}`Token` or \mintinline{haskellc}`Incomplete` in \mintinline{haskellc}`Ur` inside the callback would then make the callback non-linear. So none of them can escape the scope as is, but a structure built from an \mintinline{haskellc}`Incomplete` and finalized with \mintinline{haskellc}`fromIncomplete` or \mintinline{haskellc}`fromIncomplete_` would be automatically wrapped in \mintinline{haskellc}`Ur`, thus could safely escape the scope\footnote{This is why \mintinline{haskellc}`fromIncomplete'` and \mintinline{haskellc}`fromIncomplete_'` aren't that useful in the memory-safe API: the built structure would be stuck in the scope function without its \mintinline{haskellc}`Ur` free pass around.}.
+As in the example above, we just ensure that \mintinline{haskellc}`withToken :: (Token ⊸ Ur a) ⊸ Ur a` is the only source of \mintinline{haskellc}`Token`s around. Now, to produce an \mintinline{haskellc}`Incomplete` with \mintinline{haskellc}`alloc`, one must get a token first, so has to be in the scope of a callback which is passed to \mintinline{haskellc}`withToken`. Putting either a \mintinline{haskellc}`Token` or \mintinline{haskellc}`Incomplete` in \mintinline{haskellc}`Ur` inside the callback would then make the callback non-linear. So none of them can escape the scope as is, but a structure built from an \mintinline{haskellc}`Incomplete` and finalized with \mintinline{haskellc}`fromIncomplete` or \mintinline{haskellc}`fromIncomplete_` would be automatically wrapped in \mintinline{haskellc}`Ur`, thus could safely escape the scope\footnote{This is why \mintinline{haskellc}`fromIncomplete'` and \mintinline{haskellc}`fromIncomplete_'` aren't that useful in the memory-safe API: the built structure would be stuck in the scope function without its \mintinline{haskellc}`Ur` free pass around.}.
 
 \subsection{Filling functions for destinations}
 
@@ -571,6 +570,8 @@ To fill a hole represented by \mintinline{haskellc}`Dest a`, three functions are
 \mintinline{haskellc}`fillLeaf :: ∀ a. a → Dest a ⊸ ()` will use a value of type \mintinline{haskellc}`a` to fill the hole represented by the destination. The destination is consumed linearly, but the value to fill the hole isn't (as indicated by the first non-linear arrow). Memory-wise, the address of the object \mintinline{haskellc}`a` is written into the memory cell pointed to by the destination (see figure~\ref{fig:schema-fillLeaf}).
 
 \mintinline{haskellc}`fillComp :: ∀ a b. Incomplete a b ⊸ Dest a ⊸ b` is used to plug two \mintinline{haskellc}`Incomplete` objects together. The parent \mintinline{haskellc}`Incomplete` object into which the child \mintinline{haskellc}`Incomplete` will be plugged isn't represented in the signature of the function. Instead, only the hole of the parent that will host the address of the child is represented by \mintinline{haskellc}`Dest a`; and \mintinline{haskellc}`Incomplete a b` in the signature refers to the child object. A call to \mintinline{haskellc}`fillComp` always takes place in the scope of \mintinline{haskellc}`fmap`/\mintinline{haskellc}`<&>` over the parent object:
+
+\begin{unbreakable}
 {\small
 \begin{minted}[linenos,escapeinside=°°]{haskellc}
 parent :: Incomplete BigStruct (Dest SmallStruct, Dest OtherStruct)
@@ -580,12 +581,15 @@ comp = parent <&> \(ds, extra) → fillComp child ds
        :: Incomplete BigStruct (Dest Int, Dest OtherStruct)
 \end{minted}
 }
+\end{unbreakable}
+
 The resulting structure \mintinline{haskellc}`comp` is morally a \mintinline{haskellc}`BigStruct` like \mintinline{haskellc}`parent`, that inherited the holes from the child structure (represented by the \mintinline{haskellc}`Dest Int`). The other destination from the parent, \mintinline{haskellc}`Dest OtherStruct`, is still there to be filled too. The memory behavior of \mintinline{haskellc}`fillComp` in action can be seen in figure~\ref{fig:schema-dlist-concat}.
 
 \mintinline{haskellc}`fill :: ∀ lCtor a. Dest a ⊸ DestsOf lCtor a` is probably the most interesting of the three. It takes a constructor as a type parameter (\mintinline{haskellc}`lCtor`) and allocates a hollow heap object that has the same header/tag as the specified constructor but unspecified fields. The address of the allocated hollow constructor is written in the destination that is passed to \mintinline{haskellc}`fill`. As a result, one hole is now filled, but there is one new hole in the structure for each field left unspecified in the hollow constructor that is now part of the bigger structure. So \mintinline{haskellc}`fill` returns one destination of matching type for each of the fields of the constructor. The memory behavior of \mintinline{haskellc}`fill @'(:) :: Dest [a] ⊸ (Dest a, Dest [a])` is given in figure~\ref{fig:schema-fillCons} and the one of \mintinline{haskellc}`fill @'[] :: Dest [a] ⊸ ()` is given in figure~\ref{fig:schema-fillNil}.
 
 \mintinline{haskellc}`DestsOf` is a type family (i.e. a function operating on types and returning a type) whose role is to map a constructor to the type of destinations for its fields. For example, \mintinline{haskellc}`DestsOf '[] [a] = ()` and \mintinline{haskellc}`DestsOf '(:) [a] = (Dest a, Dest [a])`. More generally, there is a duality between the type of a constructor \mintinline[escapeinside=°°]{haskellc}`¤Ctor :: (¤f°$_i$°)°$_{i \in 1..n}$° → a` and the associated destination-filling function \mintinline[escapeinside=°°]{haskellc}`fill @'Ctor :: Dest a ⊸ (Dest ¤f°$_i$°)°$_{i \in 1..n}$°`: types flip side around the arrow, and a \mintinline{haskellc}`Dest` prefix is added to each type. Destination-based data building can be seen as more general than the usual bottom-up constructor approach, as we can recover a constructor \mintinline{haskellc}`¤Ctor` from the associated function \mintinline[escapeinside=°°]{haskellc}`fill @'Ctor`, but not the reverse:
 
+\begin{unbreakable}
 {\small
 \begin{minted}[linenos,escapeinside=°°]{haskellc}
 ¤Ctor :: (¤f°$_i$°)°$_{i \in 1..n}$° → a
@@ -594,6 +598,21 @@ The resulting structure \mintinline{haskellc}`comp` is morally a \mintinline{has
     (dx°$_i$°)°$_{i \in 1..n}$° → ;;°$_{i \in 1..n}$° (fillLeaf x°$_i$° dx°$_i$°))
 \end{minted}
 }
+\end{unbreakable}
+
+\begin{figure}[t]\centering
+  \includegraphics[width=8cm]{fillCons.png}
+  \caption{Memory behavior of \mintinline{haskellc}`fill @'(:) :: Dest [a] ⊸ (Dest a, Dest [a])`}
+  \label{fig:schema-fillCons}
+
+  \includegraphics[width=6.8cm]{fillNil.png}
+  \caption{Memory behavior of \mintinline{haskellc}`fill @'[] :: Dest [a] ⊸ ()`}
+  \label{fig:schema-fillNil}
+
+  \includegraphics[width=7.6cm]{fillLeaf.png}
+  \caption{Memory behavior of \mintinline{haskellc}`fillLeaf :: a → Dest [a] ⊸ ()`}
+  \label{fig:schema-fillLeaf}
+\end{figure}
 
 \section{Implementing destinations in Haskell}\label{sec:implementation}
 
@@ -655,7 +674,7 @@ The desired outcome is to only allocate a root receiver in the region for actual
 \end{itemize}
 
 \begin{figure}[t]\centering
-  \includegraphics[width=13cm]{alloc-region.png}
+  \includegraphics[width=12cm]{alloc-region.png}
   \caption{Memory behaviour of \mintinline{haskellc}`alloc` and \mintinline{haskellc}`intoIncomplete` in the region implementation}
   \label{fig:schema-alloc-region}
 \end{figure}
@@ -670,6 +689,7 @@ In subsection~\ref{ssec:impl-ghc}, we will see how to allocate a hollow heap obj
 
 \mintinline{haskellc}`GHC.Generics` is a built-in Haskell library that provides compile-time inspection of a type metadata through the \mintinline{haskellc}`Generic` typeclass: list of constructors, their fields, memory representation, etc. And that typeclass can be derived automatically for any type! Here's, for example, the \mintinline{haskellc}`Generic` representation of \mintinline{haskellc}`Maybe a`:
 
+\begin{unbreakable}
 {\small
 \begin{minted}[linenos,escapeinside=°°]{haskellc}
 repl> :k! Rep (Maybe a) () -- display the Generic representation of Maybe a
@@ -678,6 +698,7 @@ M1 D (MetaData "Maybe" "GHC.Maybe" "base" False) (
   :+: M1 C (MetaCons "¤Just" PrefixI False) (M1 S ¤[...¤] (K1 R a)))
 \end{minted}
 }
+\end{unbreakable}
 
 We see that there are two different possible constructors (indicated by lines starting with \mintinline{haskellc}`M1 C`): the first one, \mintinline{haskellc}`¤Nothing`, has zero field (indicated by \mintinline{haskellc}`U1`), and the second one, \mintinline{haskellc}`¤Just`, has one field of type \mintinline{haskellc}`a` (indicated by \mintinline{haskellc}`K1 R a`).
 
@@ -712,13 +733,15 @@ The only way to pass a constructor as a parameter to a primop so that the primop
 
 Its common practice to use a \mintinline{haskellc}`Proxy`/\mintinline{haskellc}`Proxy#` to pass a type parameter as an input to a function in Haskell. The problem is, the primop should be resolved at the \emph{STG to C-{}-} stage so it can access info table labels, and at that point, all type information about parameters have been erased. Fortunately, information about the actual return type of a primop is retained that late in the compilation process.
 
-If we cannot pass type literals through the arguments types, let's pass them through the return type! So we add a new polymorphic type \mintinline{haskellc}`InfoPtrPlaceholder# a`. That type has a phantom type parameter but shares the same memory representation as \mintinline{haskellc}`Addr#`. We can then use a type annotation to provide the type-level literal to the primop: \mintinline{haskellc}`reifyInfoPtr# (# #) :: InfoPtrPlaceholder# a` allows the implementation of \mintinline{haskellc}`reifyInfoPtr#` inside the compiler to read the actual value of the type parameter \mintinline{haskellc}`a` even though it is both phantom and in return position!
+If we cannot pass type literals through the arguments types, let's pass them through the return type! So we add a new polymorphic type \mintinline{haskellc}`InfoPtrPlaceholder# a` that has a phantom type parameter \mintinline{haskellc}`a` but shares the same memory representation as \mintinline{haskellc}`Addr#`. We can then use a type annotation for the return type to provide the type-level literal to the primop: \mintinline{haskellc}`reifyInfoPtr# (# #) :: InfoPtrPlaceholder# a` allows the implementation of \mintinline{haskellc}`reifyInfoPtr#` inside the compiler to read the actual value of the type parameter \mintinline{haskellc}`a` even though it is both phantom and in return position!
 
 The gist of this implementation is presented in table~\ref{table:impl-reifyInfoPtr}. The primop pattern-matches on the type \mintinline{haskellc}`resTy` of its return value. In the case it reads a string literal, it resolves the primop call into the label \mintinline{haskellc}`stg_<name>` (this is used in particular to retrieve \mintinline{haskellc}`stg_IND` to allocate indirection heap objects). In the case it reads a lifted data constructor, it resolves the primop call into the label which corresponds to the info table pointer of that constructor.
 
-The primop that we implemented, \mintinline{haskellc}`reifyInfoPtr#`, returns a value of type \mintinline{haskellc}`InfoPtrPlaceholder# a` and not directly an \mintinline{haskellc}`Addr#`, but this is not a problem: the former can be converted into the latter by calling the \mintinline{haskellc}`unsafeCoerceAddr` function supplied by GHC, as both types are represented by pointers/addresses under the hood.
+The primop that we implemented, \mintinline{haskellc}`reifyInfoPtr#`, doesn't directly return an \mintinline{haskellc}`Addr#`, but this is not a problem: \mintinline{haskellc}`InfoPtrPlaceholder# a` can be converted into the latter by calling the \mintinline{haskellc}`unsafeCoerceAddr` function supplied by GHC, as both types are represented by pointers/addresses under the hood.
 
 As an example, the following piece of code uses the two aforementioned primops to allocate a hollow \mintinline{haskellc}`¤Just` constructor in a compact region:
+
+\begin{unbreakable}
 {\small
 \begin{minted}[linenos]{haskellc}
 hollowJust :: Maybe a = compactAddHollow#
@@ -726,6 +749,7 @@ hollowJust :: Maybe a = compactAddHollow#
   (unsafeCoerceAddr (reifyInfoPtr# (# #) :: InfoPtrPlaceholder# 'Just ))
 \end{minted}
 }
+\end{unbreakable}
 
 \paragraph{Built-in type family to go from a lifted constructor to the associated symbol}
 
@@ -815,7 +839,7 @@ However, for programs which don't stress the GC, having the result of the functi
 All implementations are benchmarked against structures of size $2^{10}$, $2^{13}$ and $2^{16}$.
 
 \begin{figure}[t]\centering
-  \includegraphics[width=14cm]{bench-charts.pdf}
+  \includegraphics[width=13.8cm]{bench-charts.pdf}
   \caption{Benchmarks ran on AMD EPYC 7401P @ 2.0 GHz (single core, \texttt{-N1 -O2})}
   \label{fig:bench-charts}
 \end{figure}

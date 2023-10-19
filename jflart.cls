@@ -27,7 +27,8 @@
 
 \RequirePackage[draft=false]{microtype} % pour positionner l'option draft à faux
 
-\RequirePackage{color,graphicx}
+\RequirePackage[usenames,dvipsnames]{xcolor}
+\RequirePackage{graphicx}
 
 \newif\ifjflart@english
 \DeclareOption{english}{\jflart@englishtrue}

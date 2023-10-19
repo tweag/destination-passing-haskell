@@ -2,6 +2,7 @@ with { pkgs = import ./nix {}; };
 
 pkgs.mkShell
   { buildInputs = with pkgs; [
+      bashInteractive
       python310Packages.pygments
       which
       gnumake
@@ -29,6 +30,7 @@ pkgs.mkShell
           minted
           xpatch
           ulem
+          enumitem
           placeins
           # regexpatch
           # for lhs2tex
