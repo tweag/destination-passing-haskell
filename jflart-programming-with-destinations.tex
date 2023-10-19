@@ -6,6 +6,7 @@
 \usemintedstyle{tango}
 \usepackage{ tipa }
 \usepackage{float}
+\usepackage{stmaryrd}
 \usepackage[normalem]{ulem}
 %\usepackage[style=alpha-fr]{bibtex}
 \usepackage{newunicodechar}
@@ -30,7 +31,7 @@
 
 % Affiliations des auteurs
 \affil[1]{INRIA/LORIA, Vand\oe{}uvre-lès-Nancy, 54500, France}
-\affil[1]{TWEAG, Paris, 75012, France}
+\affil[1]{Tweag, Paris, 75012, France}
 
 % Une commande définie par l'utilisateur
 \newcommand{\cmd}[1]{\texttt{\textbackslash {#1}}}
@@ -47,7 +48,7 @@
 \newunicodechar{⇒}{\ensuremath{\Rightarrow}}
 \newunicodechar{□}{\ensuremath{{\color{red} \square}}}
 \newunicodechar{¤}{}
-\newunicodechar{;}{\textbf{\large;}}
+\newunicodechar{;}{\ensuremath{\fatsemi}}
 \newunicodechar{∀}{\ensuremath{\forall}}
 \makeatletter
 \AtBeginEnvironment{minted}{\dontdofcolorbox}
@@ -128,7 +129,7 @@ Two somewhat uncommon Haskell operators are used in the rest of this article:
 
 \mintinline{haskellc}`(<&>) :: Functor ¤f ⇒ ¤f a ⊸ (a ⊸ b) ⊸ ¤f b` is the same as \mintinline{haskellc}`fmap` with the order of the arguments flipped: \mintinline{haskellc}`i <&> (\d → f d) = fmap (\d → f d) i`;% It will be used to map over the destinations \mintinline{haskellc}`d` associated to an incomplete data structure \mintinline{haskellc}`i`;
 
-\mintinline{haskellc}`(;;) :: () ⊸ b ⊸ b` is used to chain a linear operation returning \mintinline{haskellc}`()` with one returning a value of type \mintinline{haskellc}`b` without breaking linearity.
+\mintinline{haskellc}`(;) :: () ⊸ b ⊸ b` is used to chain a linear operation returning \mintinline{haskellc}`()` with one returning a value of type \mintinline{haskellc}`b` without breaking linearity.
 
 \section{Motivating examples for DPS programming}\label{sec:motivating-examples}
 
@@ -167,7 +168,7 @@ The implementation of destination-backed difference lists is presented in Table~
   append :: DList a ⊸ a → DList a
   append i x =
     i <&> \d → case fill @'(:) d of
-      (dh, dt) → fillLeaf x dh ;; dt
+      (dh, dt) → fillLeaf x dh ; dt
   
   concat :: DList a ⊸ DList a ⊸ DList a
   concat i1 i2 = i1 <&> \dt1 → fillComp i2 dt1
@@ -289,12 +290,12 @@ mapAccumBFS f s0 tree =
     go st q = case dequeue q of
       ¤Nothing → ¤Ur st
       ¤Just ((utree, dtree), q') → case utree of
-        ¤Ur ¤Nil → fill @'Nil dtree ;; go st q'
+        ¤Ur ¤Nil → fill @'Nil dtree ; go st q'
         ¤Ur (¤Node x tl tr) → case fill @'Node dtree of
           (dy, dtl, dtr) →
             let q'' = q' `enqueue` (¤Ur tl, dtl) `enqueue` (¤Ur tr, dtr)
                 (st', y) = f st x
-              in fillLeaf y dy ;; go st' q''
+              in fillLeaf y dy ; go st' q''
 \end{minted}
 \caption{Implementation of breadth-first tree traversal with destinations}
 \label{table:impl-bfs-tree-traversal}
@@ -372,37 +373,37 @@ The implementation presented in Table~\ref{table:impl-parser-naive} is quite sta
 % \begin{minted}[linenos,escapeinside=°°]{haskellc}
 % parseSExprDPS :: ByteString → Int → Dest SExpr ⊸ Either Error Int
 % parseSExprDPS bs i d = case bs !? i of
-%   ¤Nothing → °\mnew{fillLeaf defaultSExpr d}° ;; ¤Left (¤UnexpectedEOFSExpr i)
+%   ¤Nothing → °\mnew{fillLeaf defaultSExpr d}° ; ¤Left (¤UnexpectedEOFSExpr i)
 %   ¤Just x → case x of
-%     ')' → °\mnew{fillLeaf defaultSExpr d}° ;; ¤Left (¤UnexpectedClosingParen i)
+%     ')' → °\mnew{fillLeaf defaultSExpr d}° ; ¤Left (¤UnexpectedClosingParen i)
 %     '(' → parseSListDPS bs (i + 1) °\mnew{(fill @'SList d)}°
 %     '"' → parseSStringDPS bs (i + 1) ¤False °\mnew{(fill @'SString d)}°
 %     _ → let tok = extractNextToken bs i -- take chars until delimiter/space
 %         in if null tok then parseSExprDPS bs (i + 1) d else case parseInt tok of
 %               ¤Just int → let °\mnew{!dint = fill @'SInteger d}°
-%                           in °\mnew{fillLeaf int dint}° ;; ¤Right (i + length tok - 1)
+%                           in °\mnew{fillLeaf int dint}° ; ¤Right (i + length tok - 1)
 %               _ → let °\mnew{!dsym = fill @'SSymbol d}°
-%                    in °\mnew{fillLeaf (toString tok) dsym}° ;; ¤Right (i + length tok - 1)
+%                    in °\mnew{fillLeaf (toString tok) dsym}° ; ¤Right (i + length tok - 1)
 % parseSListDPS :: ByteString → Int → Dest [SExpr] ⊸ Either Error Int
 % parseSListDPS bs i d = case bs !? i of
-%   ¤Nothing → °\mnew{fill @'[] d}° ;; ¤Left (¤UnexpectedEOFSList i)
+%   ¤Nothing → °\mnew{fill @'[] d}° ; ¤Left (¤UnexpectedEOFSList i)
 %   ¤Just x → if
-%     | x == ')' → °\mnew{fill @'[] d}° ;; ¤Right i
+%     | x == ')' → °\mnew{fill @'[] d}° ; ¤Right i
 %     | isSpace x → parseSListDPS bs (i + 1) d
 %     | otherwise → let !(dh, dt) = °\mnew{fill @'(:) d}°
 %                    in case parseSExprDPS bs i °\mnew{dh}° of
-%                         ¤Left err → fill @'[] dt ;; ¤Left err
+%                         ¤Left err → fill @'[] dt ; ¤Left err
 %                         ¤Right endPos → parseSListDPS bs (endPos + 1) °\mnew{dt}°
 % parseSStringDPS :: ByteString → Int → Bool → Dest [Char] ⊸ Either Error Int
 % parseSStringDPS bs i escape d = case bs !? i of
-%   ¤Nothing → °\mnew{fill @'[] d}° ;; ¤Left (¤UnexpectedEOFSString i)
+%   ¤Nothing → °\mnew{fill @'[] d}° ; ¤Left (¤UnexpectedEOFSString i)
 %   ¤Just x → case x of
-%     '"'  | not escape → °\mnew{fill @'[] d}° ;; ¤Right i
+%     '"'  | not escape → °\mnew{fill @'[] d}° ; ¤Right i
 %     '\\' | not escape → parseSStringDPS bs (i + 1) ¤True d
 %     'n'  | escape → let °\mnew{!(dh, dt) = fill @'(:) d}°
-%                      in °\mnew{fillLeaf '\textbackslash{}n' dh}° ;; parseSStringDPS bs (i + 1) ¤False °\mnew{dt}°
+%                      in °\mnew{fillLeaf '\textbackslash{}n' dh}° ; parseSStringDPS bs (i + 1) ¤False °\mnew{dt}°
 %     _ → let °\mnew{!(dh, dt) = fill @'(:) d}°
-%          in °\mnew{fillLeaf x dh}° ;; parseSStringDPS bs (i + 1) ¤False °\mnew{dt}°
+%          in °\mnew{fillLeaf x dh}° ; parseSStringDPS bs (i + 1) ¤False °\mnew{dt}°
 % \end{minted}
 % \caption{Implementation of the S-expression parser with destinations}
 % \label{table:impl-sexpr-parser-with-dest}
@@ -432,14 +433,14 @@ parseSList bs i acc = case bs !? i of
 \begin{minted}[linenos,escapeinside=°°]{haskellc}
 parseSListDPS :: ByteString → Int → Dest [SExpr] ⊸ Either Error Int
 parseSListDPS bs i d = case bs !? i of
-  ¤Nothing → °\mnew{fill @'[] d}° ;; ¤Left (¤UnexpectedEOFSList i)
+  ¤Nothing → °\mnew{fill @'[] d}° ; ¤Left (¤UnexpectedEOFSList i)
   ¤Just x → if
-    | x == ')' → °\mnew{fill @'[] d}° ;; ¤Right i
+    | x == ')' → °\mnew{fill @'[] d}° ; ¤Right i
     | isSpace x → parseSListDPS bs (i + 1) d
     | otherwise →
         let !(dh, dt) = °\mnew{fill @'(:) d}°
          in case parseSExprDPS bs i °\mnew{dh}° of
-              ¤Left err → fill @'[] dt ;; ¤Left err
+              ¤Left err → fill @'[] dt ; ¤Left err
               ¤Right endPos → parseSListDPS bs (endPos + 1) °\mnew{dt}°
 \end{minted}
 \caption{Implementation of the S-expression parser with destinations}
@@ -513,7 +514,7 @@ createR :: () ⊸ Resource    -- no way to indicate that the result must be used
 consumeR :: Resource ⊸ ()
 
 exampleShouldFail :: () =    -- accepted even though x is consumed twice
-  let x = createR ¤() in consumeR x ;; consumeR x
+  let x = createR ¤() in consumeR x ; consumeR x
 \end{minted}
 }
 \end{unbreakable}
@@ -526,7 +527,7 @@ The solution is to make the production of the resource implicit but force the co
 withR :: (Resource ⊸ a) ⊸ a
 consumeR :: Resource ⊸ ()
 
-exampleFail :: () = withR (\x → consumeR °\mold{x}° ;; consumeR °\mold{x}°) -- not linear
+exampleFail :: () = withR (\x → consumeR °\mold{x}° ; consumeR °\mold{x}°) -- not linear
 \end{minted}
 }
 \end{unbreakable}
@@ -546,7 +547,7 @@ exampleFail' :: Ur Resource = withR' (\x → °\mold{¤Ur x}°) -- not linear
 }
 \end{unbreakable}
 
-This explicit \emph{scope function} trick will no longer be necessary when linear constraints will land in GHC (see \cite{spiwack_linearly_2022}). In the meantime, this principle have been used to ensure safety of the DPS implementation in Haskell.
+This explicit \emph{scope function} trick will no longer be necessary when linear constraints will land in GHC (see \cite{spiwack_linearly_2022}). In the meantime, this principle has been used to ensure safety of the DPS implementation in Haskell.
 
 % \mintinline{haskellc}`Incomplete a b` has a linear functor instance to map on the \mintinline{haskellc}`b` side (the one carrying destinations) which forces the callback to be linear:
 
@@ -572,7 +573,7 @@ As in the example above, we just ensure that \mintinline{haskellc}`withToken :: 
 
 The last part of the API is the one in charge of actually building the structures in a top-down fashion. To fill a hole represented by \mintinline{haskellc}`Dest a`, three functions are available:
 
-\mintinline{haskellc}`fillLeaf :: ∀ a. a → Dest a ⊸ ()` will use a value of type \mintinline{haskellc}`a` to fill the hole represented by the destination. The destination is consumed linearly, but the value to fill the hole isn't (as indicated by the first non-linear arrow). Memory-wise, the address of the object \mintinline{haskellc}`a` is written into the memory cell pointed to by the destination (see Figure~\ref{fig:schema-fillLeaf}).
+\mintinline{haskellc}`fillLeaf :: ∀ a. a → Dest a ⊸ ()` uses a value of type \mintinline{haskellc}`a` to fill the hole represented by the destination. The destination is consumed linearly, but the value to fill the hole isn't (as indicated by the first non-linear arrow). Memory-wise, the address of the object \mintinline{haskellc}`a` is written into the memory cell pointed to by the destination (see Figure~\ref{fig:schema-fillLeaf}).
 
 \mintinline{haskellc}`fillComp :: ∀ a b. Incomplete a b ⊸ Dest a ⊸ b` is used to plug two \mintinline{haskellc}`Incomplete` objects together. The target \mintinline{haskellc}`Incomplete` isn't represented in the signature of the function. Instead, only the target hole that will receive the address of the child is represented by \mintinline{haskellc}`Dest a`; and \mintinline{haskellc}`Incomplete a b` in the signature refers to the child object. A call to \mintinline{haskellc}`fillComp` always takes place in the scope of \mintinline{haskellc}`fmap`/\mintinline{haskellc}`<&>` over the parent object:
 
@@ -600,7 +601,7 @@ The resulting structure \mintinline{haskellc}`comp` is morally a \mintinline{has
 ¤Ctor :: (¤f°$_i$°)°$_{i \in 1..n}$° → a
 ¤Ctor (x°$_i$°)°$_{i \in 1..n}$° = fromIncomplete_' (
   alloc <&> \(d :: Dest a) → case fill @'Ctor d of
-    (dx°$_i$°)°$_{i \in 1..n}$° → ;;°$_{i \in 1..n}$° (fillLeaf x°$_i$° dx°$_i$°))
+    (dx°$_i$°)°$_{i \in 1..n}$° → ;°$_{i \in 1..n}$° (fillLeaf x°$_i$° dx°$_i$°))
 \end{minted}
 }
 \end{unbreakable}
@@ -623,14 +624,14 @@ The resulting structure \mintinline{haskellc}`comp` is morally a \mintinline{has
 
 Having incomplete memory structures in memory inherently introduces a lot of tension with both the garbage collector and compiler. Indeed, the GC assumes that every heap object it traverses is well-formed, whereas incomplete structures are absolutely ill-formed: they contain uninitialized pointers, which the GC should absolutely not follow.
 
-The tension with the compiler is of lesser extent. The latter can make some optimizations because it assumes that every object is immutable, while DPS programming break that guarantee by mutating constructors after they have been allocated (albeit only one update can happen). Fortunately, most if not all of those errors can be detected when implementing the API and are easily fixed with careful use of pragmas.
+The tension with the compiler is of lesser extent. The latter can make some optimizations because it assumes that every object is immutable, while DPS programming breaks that guarantee by mutating constructors after they have been allocated (albeit only one update can happen). Fortunately, most if not all of these errors can be detected when implementing the API and are easily fixed with careful use of pragmas.
 
 \subsection{Compact Regions}\label{ssec:impl-compact-regions}
 
 As we teased in subsection~\ref{ssec:parser-sexpr}, \emph{compact regions} from~\cite{yang_efficient_2015} make it very convenient to implement DPS programming in 
-Haskell. A compact region represents a memory area in the Haskell heap, that is almost fully independent from the GC and the rest of the garbage-collected heap. For the GC, each compact region is seen as a single heap object with a single lifetime. The GC can efficiently check whether there is at least one pointer in the garbage-collected heap that points into the region, and while that is the case, the region is kept alive. When this condition is no longer matched, the whole region is discarded. The result is that the GC won't traverse any node from the region: it is treated as one opaque block (even though it is actually implemented as a chain of blocks of the same size, that doesn't change the principle). Also, compact regions are immobile in memory; the GC won't move them, so destinations can be just implemented as a wrapper over the raw pointer type of Haskell (\mintinline{haskellc}`Addr#`): \mintinline{haskellc}`data Dest r a = ¤Dest Addr#`
+Haskell. A compact region represents a memory area in the Haskell heap, that is almost fully independent from the GC and the rest of the garbage-collected heap. For the GC, each compact region is seen as a single heap object with a single lifetime. The GC can efficiently check whether there is at least one pointer in the garbage-collected heap that points into the region, and while this is the case, the region is kept alive. When this condition is no longer matched, the whole region is discarded. The result is that the GC won't traverse any node from the region: it is treated as one opaque block (even though it is actually implemented as a chain of blocks of the same size, that doesn't change the principle). Also, compact regions are immobile in memory; the GC won't move them, so destinations can be just implemented as a wrapper over the raw pointer type of Haskell (\mintinline{haskellc}`Addr#`): \mintinline{haskellc}`data Dest r a = ¤Dest Addr#`
 
-Using compact regions to implement DPS programming, we completely elude the concerns of tension between the garbage collector and incomplete structures we want to build. Instead, we get two extra restrictions. First, every structure in a region must be in a fully-evaluated form. Regions are strict, and heap object that is copied to a region is first forced into normal form. This might not always be a win; sometimes laziness, which is the default \emph{modus operandi} of the garbage-collected heap, might be preferable.
+By using compact regions to implement DPS programming, we completely elude the concerns of tension between the garbage collector and incomplete structures we want to build. Instead, we get two extra restrictions. First, every structure in a region must be in a fully-evaluated form. Regions are strict, and a heap object that is copied to a region is first forced into normal form. This might not always be a win; sometimes laziness, which is the default \emph{modus operandi} of the garbage-collected heap, might be preferable.
 
 Secondly, data in a region cannot contain pointers to the garbage-collected heap, or pointers to other regions: it must be self-contained. That forces us to slightly modify the API, to add a phantom type parameter \mintinline{haskellc}`r` which tags each object with the identifier of the region it belongs to. There are two related consequences: \mintinline{haskellc}`fillLeaf` has to copy each \emph{leaf} value from the garbage-collected heap into the region in which it will be used as a leaf; and \mintinline{haskellc}`fillComp` can only plug together two \mintinline{haskellc}`Incomplete`s that come from the same region.
 
@@ -665,7 +666,7 @@ fillLeaf :: ∀ r a.       Region r ⇒ a → Dest r a ⊸ ()
 
 Ideally, as we detailed in the API, we want \mintinline{haskellc}`Incomplete r a b` to contains a \mintinline{haskellc}`a` and a \mintinline{haskellc}`b`, and let the \mintinline{haskellc}`a` free when the \mintinline{haskellc}`b` is fully consumed (or linearly transformed into \mintinline{haskellc}`Ur c`). So the most straightforward implementation for \mintinline{haskellc}`Incomplete` would be a pair \mintinline{haskellc}`(a, b)`, where \mintinline{haskellc}`a` in the pair is only partially complete.
 
-It is also natural for \mintinline{haskellc}`alloc` to return an \mintinline{haskellc}`Incomplete r a (Dest a)`: there is nothing more here than an empty memory cell (named named \emph{root receiver}) of type \mintinline{haskellc}`a` which the associated destination of type \mintinline{haskellc}`Dest a` points to, as presented in Figure~\ref{fig:schema-alloc}. A bit like the identity function, whatever goes in the hole is exactly what will be retrieved in the \mintinline{haskellc}`a` side.
+It is also natural for \mintinline{haskellc}`alloc` to return an \mintinline{haskellc}`Incomplete r a (Dest a)`: there is nothing more here than an empty memory cell (named \emph{root receiver}) of type \mintinline{haskellc}`a` which the associated destination of type \mintinline{haskellc}`Dest a` points to, as presented in Figure~\ref{fig:schema-alloc}. A bit like the identity function, whatever goes in the hole is exactly what will be retrieved in the \mintinline{haskellc}`a` side.
 
 If \mintinline{haskellc}`Incomplete r a b` is represented by a pair \mintinline{haskellc}`(a, b)`, then the root receiver should be the first field of the pair. However, the root receiver must be in the region, otherwise the GC might follow the garbage pointer that lives inside; whereas the \mintinline{haskellc}`Incomplete` wrapper must be in the garbage-collected heap so that it can sometimes be optimized away by the compiler, and always deallocated as soon as possible.
 
@@ -683,7 +684,7 @@ The desired outcome is to only allocate a root receiver in the region for actual
   \label{fig:schema-alloc-region}
 \end{figure}
 
-The implementation of \mintinline{haskellc}`fromIncomplete` is then relatively straightforward. It allocate a hollow \mintinline{haskellc}`¤Ur (□, □)` in the region, writes the address of the now complete structure into it, and returns the \mintinline{haskellc}`¤Ur`.
+The implementation of \mintinline{haskellc}`fromIncomplete` is then relatively straightforward. It allocate a hollow \mintinline{haskellc}`¤Ur (□, □)` in the region, write the address of the now complete structure into it, and return the \mintinline{haskellc}`¤Ur`.
 
 \subsection{Deriving \texttt{fill} for all constructors with \texttt{Generics}}\label{ssec:impl-generics}
 
@@ -704,7 +705,7 @@ M1 D (MetaData "Maybe" "GHC.Maybe" "base" False) (
 }
 \end{unbreakable}
 
-We see that there are two different constructors (indicated by \mintinline{haskellc}`M1 C ...` lines): \mintinline{haskellc}`¤Nothing` has zero field (indicated by \mintinline{haskellc}`U1`) and \mintinline{haskellc}`¤Just` has one field of type \mintinline{haskellc}`a` (indicated by \mintinline{haskellc}`K1 R a`).
+We see that there are two different constructors (indicated by \mintinline{haskellc}`M1 C ...` lines): \mintinline{haskellc}`¤Nothing` has zero fields (indicated by \mintinline{haskellc}`U1`) and \mintinline{haskellc}`¤Just` has one field of type \mintinline{haskellc}`a` (indicated by \mintinline{haskellc}`K1 R a`).
 
 With a bit of type-level programming\footnote{see \texttt{src/Compact/Pure/Internal.hs:418} in~\cite{linear_dest}}, we can extract the parts of that representation which are related to the constructor \mintinline{haskellc}`lCtor` and use them inside the instance head of \mintinline{haskellc}`Fill lCtor a` so the implementation of \mintinline{haskellc}`fill` can depend on them. That's how we can give the proper types to the destinations returned by that function for a specified constructor. The \mintinline{haskellc}`DestsOf lCtor a :: Type` type family also uses the generic representation of \mintinline{haskellc}`a` to extract what it needs to know about \mintinline{haskellc}`lCtor` and its fields.
 
@@ -826,15 +827,15 @@ axLCtorToSymbolDef =
 \label{table:impl-LCtorToSymbol}
 \end{table}
 
-\section{Evaluating performance of DPS programming}\label{sec:benchmark}
+\section{Evaluating the performance of DPS programming}\label{sec:benchmark}
 
 \paragraph{Benchmarking methodology}
 
 All over this article, we talked about programs in both naive style (using regular Haskell constructors) and DPS, backed by compact regions.
 
-With DPS versions of the programs, the result is stored in compact regions, which also force strictness (so the whole resulting structure is automatically fully evaluated inside the region). So it seems logical to compare them to naive versions that also copy their final result inside a compact region.
+With DPS versions of the programs, the result is stored in a compact regions, which also forces strictness (so the whole resulting structure is automatically fully evaluated inside the region). So it seems reasonable to compare them to naive versions that also copy their final result inside a compact region.
 
-However, for programs which don't stress the GC, having the result of the function copied into a compact region isn't particularly desirable and will generally inflates memory allocations. So for each naive implementation, we also benchmarked an alternative version (whose name is suffixed with a star) that uses \mintinline{haskellc}`Control.DeepSeq.force` to fully evaluate the result inside the GC heap instead of copying it into a compact region. We displays the result of the starred version when this advantageous for the naive implementation and when having the result stored inside a compact region is not particularly desirable.
+However, for programs which don't stress the GC, having the result of the function copied into a compact region isn't particularly desirable and will generally inflate memory allocations. So for each naive implementation, we also benchmarked an alternative version (whose name is suffixed with a star) that uses \mintinline{haskellc}`Control.DeepSeq.force` to fully evaluate the result inside the GC heap instead of copying it into a compact region. We display the result of the starred version when this is advantageous for the naive implementation and when having the result stored inside a compact region is not particularly desirable.
 
 All implementations are benchmarked against structures of size $2^{10}$, $2^{13}$ and $2^{16}$.
 
@@ -878,7 +879,7 @@ We see in part \textbf{C} of Figure~\ref{fig:bench-charts} that the destination-
 % {\small
 % \begin{minted}[linenos]{haskellc}
 % append :: Dest [a] ⊸ a → Dest [a]
-% append d x = let !(dh, dt) = fill @'(:) d in fillLeaf x dh ;; dt
+% append d x = let !(dh, dt) = fill @'(:) d in fillLeaf x dh ; dt
 
 % mapDPS' _ [] d = fill @'[] d
 % mapDPS' f (x : xs) d = let !y = f x ; !d' = append d y in mapDPS' f xs d'
@@ -893,9 +894,9 @@ We see in part \textbf{C} of Figure~\ref{fig:bench-charts} that the destination-
 
 \section{Related work}
 
-The idea of functional data structures with write-once holes is not new. Minamide already proposed in~\cite{minamide_functional_1998} a variant of $\lambda$-calculus with support for \emph{hole abstractions}, which can be represented in memory by an incomplete structure with one hole and can be composed efficiently with each other (as with \mintinline{haskellc}`fillComp` in Figure~\ref{fig:schema-dlist-concat}). With such framework, it is fully possible to implement destination-backed difference lists for example.
+The idea of functional data structures with write-once holes is not new. Minamide already proposed in~\cite{minamide_functional_1998} a variant of $\lambda$-calculus with support for \emph{hole abstractions}, which can be represented in memory by an incomplete structure with one hole and can be composed efficiently with each other (as with \mintinline{haskellc}`fillComp` in Figure~\ref{fig:schema-dlist-concat}). With such a framework, it is fully possible to implement destination-backed difference lists for example.
 
-However, in Minamide's work, there is no concept of destination: the hole in a structure can only be filled if one has the structure itself at hand. On the other hand, our paper introduces destinations, as a way to interact with a hole remotely, even when one doesn't have a handle to the associated structure. Because destinations are first-class objects, they can be passed around or stored in collections or other structure, while preserving memory safety. This is the major step forward that our paper presents.
+However, in Minamide's work, there is no concept of destination: the hole in a structure can only be filled if one has the structure itself at hand. On the other hand, our approach introduces destinations, as a way to interact with a hole remotely, even when one doesn't have a handle to the associated structure. Because destinations are first-class objects, they can be passed around or stored in collections or other structure, while preserving memory safety. This is the major step forward that our paper presents.
 
 More recently, \cite{protzenko_mezzo_2013} introduced the Mezzo programming language, in which mutable data structures can be freezed into immutable ones after having been completed. This principle is used to some extend in their list standard library module, to mimic a form of DPS programming. An earlier appearance of DPS programming as a mean to achieve better performance in a mutable language can also be seen in~\cite{larus_restructuring_1989}.
 
