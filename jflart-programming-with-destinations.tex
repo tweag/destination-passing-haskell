@@ -212,27 +212,26 @@ The implementation of destination-backed difference lists is presented in Table~
 % \end{figure}
 
 \begin{itemize}
-  \item \mintinline{haskellc}`alloc` returns a
+  \item \mintinline{haskellc}`alloc` (Figure~\ref{fig:schema-alloc}) returns a
     \mintinline{haskellc}`DList a` which is exactly an
-    \mintinline{haskellc}`Incomplete [a] (Dest [a])` structure as
-    depicted in Figure~\ref{fig:schema-alloc}. There is no data
+    \mintinline{haskellc}`Incomplete [a] (Dest [a])` structure. There is no data
     there yet and the list that will be fed in \mintinline{haskellc}`Dest [a]` is exactly the list that the
     resulting \mintinline{haskellc}`Incomplete` will hold. This is
     similar to the function encoding where \mintinline{haskellc}`\x → x` function represents the empty difference list;
     
 
-  \item \mintinline{haskellc}`append` adds an element at the tail
-    position of a difference list, as illustrated in Figure~\ref{fig:schema-dlist-append}. For this, it first uses
-    \mintinline{haskellc}`fill @'(:)` (whose individual behavior is presented in Figure~\ref{fig:schema-fillCons}) to fill the hole at the end of the list represented by 
+  \item \mintinline{haskellc}`append` (Figure~\ref{fig:schema-dlist-append}) adds an element at the tail
+    position of a difference list. For this, it first uses
+    \mintinline{haskellc}`fill @'(:)` to fill the hole at the end of the list represented by
     \mintinline{haskellc}`d :: Dest [a]` with a new hollow \emph{cons}
     cell with two new holes pointed by \mintinline{haskellc}`dh :: Dest a` and \mintinline{haskellc}`dt :: Dest [a]`. Then,
-    \mintinline{haskellc}`fillLeaf` (whose individual behavior is presented in Figure~\ref{fig:schema-fillLeaf}) fills the hole represented by
+    \mintinline{haskellc}`fillLeaf` fills the hole represented by
     \mintinline{haskellc}`dh` with the value
     of type \mintinline{haskellc}`a`
     to append. The hole of the resulting difference list is the one pointed by \mintinline{haskellc}`dt :: Dest [a]` which hasn't been filled yet.
 
-  \item \mintinline{haskellc}`concat` concates two difference lists,
-    \mintinline{haskellc}`i1` and \mintinline{haskellc}`i2`, as shown in Figure~\ref{fig:schema-dlist-concat}. It uses \mintinline{haskellc}`fillComp` to fill the destination \mintinline{haskellc}`dt1`
+  \item \mintinline{haskellc}`concat` (Figure~\ref{fig:schema-dlist-concat}) concatenates two difference lists,
+    \mintinline{haskellc}`i1` and \mintinline{haskellc}`i2`. It uses \mintinline{haskellc}`fillComp` to fill the destination \mintinline{haskellc}`dt1`
     of the first difference list with the
     root of the second difference list \mintinline{haskellc}`i2`. The resulting \mintinline{haskellc}`Incomplete`
     object hence has the same root as the first list, holds the
@@ -241,12 +240,12 @@ The implementation of destination-backed difference lists is presented in Table~
     of the second list into the hole of the first one; no move is
     required.
 
-  \item \mintinline{haskellc}`toList` completes the incomplete structure by plugging \emph{nil} into its hole with \mintinline{haskellc}`fill @'[]` (whose individual behavior is presented in Figure~\ref{fig:schema-fillNil}) and removes the \mintinline{haskellc}`Incomplete` wrapper which is no longer mandatory as the structure is now complete. An overview of the whole operation is presented in Figure~\ref{fig:schema-dlist-toList}.
+  \item \mintinline{haskellc}`toList` (Figure~\ref{fig:schema-dlist-toList}) completes the incomplete structure by plugging \emph{nil} into its hole with \mintinline{haskellc}`fill @'[]` (whose individual behavior is presented in Figure~\ref{fig:schema-fillNil}) and removes the \mintinline{haskellc}`Incomplete` wrapper which is no longer mandatory as the structure is now complete.
 \end{itemize}
 
-This simplified API for difference lists still lacks some linearity requirements to make it write-once/immutable. In particular, the result of \mintinline{haskellc}`alloc` should be used linearly but this isn't enforced by this API, and as a result, one could fill the embedded destination twice. Linearity concerns will be addressed in section~\ref{ssec:api-linearity}.
+To use this API safely, it is imperative that values of type \mintinline{haskellc}`Incomplete a b` are used linearly. Otherwise we could write to the same destination twice, so we take a \mintinline{haskellc}`dl::DList a`, then call \mintinline{haskellc}`toList`, to obtain a list \mintinline{haskellc}`l::[a]`, then append again to \mintinline{haskellc}`dl`! In this situation \mintinline{haskellc}`l` has a hole, yet we can read it and get a segfault. The simplified API of Table~\ref{table:impl-dlist} doesn't actually enforce the required linearity property, I'll address it in Section~\ref{ssec:api-linearity}.
 
-As we see, thanks to destinations, we can write functions whose implementation is closer to their intended memory behavior (here, implementing data structures with holes), and get comparable or sometimes better performance than the implementations based on pure functional techniques. A performance report is available in section~\ref{sec:benchmark}.\TODO{Arnaud: thought: I don't have time to make such changes tonight, but I feel that there are a few things that can be improved in this section. Maybe only explain the fill functions in the next?. Third, I don't think that saying that the performance are as good as the functional encoding is sending the right message (even though you have to admit that your implementation doesn't make it quite obvious that the destination-based implementation is better).}
+This implementation of difference list matches closely the intended memory behaviour, we can expect it to be more efficient than the functional encoding. We'll see in Section~\ref{sec:benchmark} that the prototype implementation presented in Section~\ref{sec:implementation} cannot yet demonstrate these performance improvements.
 
 \subsection{Breadth-first tree traversal}\label{ssec:bf-tree-traversal}
 
