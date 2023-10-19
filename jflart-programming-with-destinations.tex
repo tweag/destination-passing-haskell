@@ -86,7 +86,6 @@ In this article, I present an implementation of destinations for Haskell, which 
 
 %\tableofcontents{}
 
-\TODO{[] Link repo? -> software heritage}\\
 \TODO{reparler de map quelque part}
 
 \section{Introduction}
@@ -104,7 +103,7 @@ The Haskell programming language is equipped with support for linear types throu
 \paragraph{The main contributions of this paper are}
 \begin{itemize}
 \item A linearly-typed API for destinations that let us build and manipulate data structures with holes while exposing a pure interface (section~\ref{sec:api})
-\item A first implementation of destinations for Haskell relying on so-called compact regions (section~\ref{sec:implementation}), together with a performance evaluation (section~\ref{sec:benchmark}).
+\item A first implementation of destinations for Haskell relying on so-called compact regions (section~\ref{sec:implementation}), together with a performance evaluation (section~\ref{sec:benchmark}). The whole implementation is available in~\cite{custom_ghc} and~\cite{linear_dest}.
 \end{itemize}
 
 \section{A short primer on linear types}\label{ssec:intro-linearity}
@@ -317,7 +316,7 @@ Parsing a S-expression can be done concisely with three mutually recursive funct
   \item \mintinline{haskellc}`parseSString` scans the input character by character and accumulates them until reaching a closing quote (taking escape sequences into consideration).
 \end{itemize}
 
-Only the implementation of \mintinline{haskellc}`parseSList` will be presented here as it is enough for our purpose, but the full implementation of both the naive and destination-based versions of the whole parser can be found in the software heritage archive of the project\footnote{\TODO{add it}} in \mintinline{text}`src/Compact/Pure/SExpr.hs`.
+Only the implementation of \mintinline{haskellc}`parseSList` will be presented here as it is enough for our purpose, but the full implementation of both the naive and destination-based versions of the whole parser can be found in the software heritage archive of the project~\cite{linear_dest} in \mintinline{text}`src/Compact/Pure/SExpr.hs`.
 
 The implementation presented in table~\ref{table:impl-parser-naive} is quite standard: the accumulator \mintinline{haskellc}`acc` collects the nodes that are returned by the call to \mintinline{haskellc}`parseSExpr` in the reverse order (because it's the natural building order for a linked list without destinations). When the end of the SList is reached (line 5), the accumulator is reversed and stored in the \mintinline{haskellc}`¤SList` constructor, before being returned.
 
@@ -701,7 +700,7 @@ M1 D (MetaData "Maybe" "GHC.Maybe" "base" False) (
 
 We see that there are two different possible constructors (indicated by lines starting with \mintinline{haskellc}`M1 C`): the first one, \mintinline{haskellc}`¤Nothing`, has zero field (indicated by \mintinline{haskellc}`U1`), and the second one, \mintinline{haskellc}`¤Just`, has one field of type \mintinline{haskellc}`a` (indicated by \mintinline{haskellc}`K1 R a`).
 
-With a bit of fancy type-level metaprogramming\footnote{see \TODO{add it}}, we can extract the parts of that representation which are related to the constructor \mintinline{haskellc}`lCtor` and use them inside the instance head of \mintinline{haskellc}`Fill lCtor a` so the implementation of \mintinline{haskellc}`fill` can depend on them. That's how we can give the proper types to the destinations returned by that function for a specified constructor. The \mintinline{haskellc}`DestsOf lCtor a :: Type` typeclass also uses the generic representation of \mintinline{haskellc}`a` to extract what it needs to know about \mintinline{haskellc}`lCtor` and its fields.
+With a bit of fancy type-level metaprogramming\footnote{see \texttt{src/Compact/Pure/Internal.hs:418} in~\cite{linear_dest}}, we can extract the parts of that representation which are related to the constructor \mintinline{haskellc}`lCtor` and use them inside the instance head of \mintinline{haskellc}`Fill lCtor a` so the implementation of \mintinline{haskellc}`fill` can depend on them. That's how we can give the proper types to the destinations returned by that function for a specified constructor. The \mintinline{haskellc}`DestsOf lCtor a :: Type` typeclass also uses the generic representation of \mintinline{haskellc}`a` to extract what it needs to know about \mintinline{haskellc}`lCtor` and its fields.
 
 \subsection{Changes to GHC internals and RTS}\label{ssec:impl-ghc}
 
@@ -719,6 +718,8 @@ As a result, we will need two primitives two properly allocate a hollow construc
 \item one \emph{external primop} to allocate space into a compact region for a hollow constructor. This primop will be implemented inside the RTS as it is the only one who knows how to deal with compact regions;
 \item one \emph{internal primop} that will be fully resolved at compile time\footnote{a bit like a \mintinline{haskellc}`constexpr` in C++ or a macro in Rust} into a normal albeit static value representing the info table pointer of a given constructor. That value will be passed as an argument to the aforementioned external primop.
 \end{itemize}
+
+All the alterations to GHC that will be showed here are available in full form in~\cite{custom_ghc}.
 
 \paragraph{External primop: allocate hollow constructor through the RTS}
 
