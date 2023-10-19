@@ -220,22 +220,21 @@ The implementation of destination-backed difference lists is presented in table~
     
 
   \item \mintinline{haskellc}`append` adds an element at the tail
-    position of a difference list. For this, it first uses
+    position of a difference list, as illustrated in figure~\ref{fig:schema-dlist-append}. For this, it first uses
     \mintinline{haskellc}`fill @'(:)` (whose individual behavior is presented in figure~\ref{fig:schema-fillCons}) to fill the hole at the end of the list represented by 
     \mintinline{haskellc}`d :: Dest [a]` with a new hollow \emph{cons}
-    cell with two new holes pointed by \mintinline{haskellc}`dh :: Dest a` and \mintinline{haskellc}`dt :: Dest [a]`, as illustrated in figure~\ref{fig:schema-dlist-append}. Then,
+    cell with two new holes pointed by \mintinline{haskellc}`dh :: Dest a` and \mintinline{haskellc}`dt :: Dest [a]`. Then,
     \mintinline{haskellc}`fillLeaf` (whose individual behavior is presented in figure~\ref{fig:schema-fillLeaf}) fills the hole represented by
     \mintinline{haskellc}`dh` with the value
     of type \mintinline{haskellc}`a`
     to append. The hole of the resulting difference list is the one pointed by \mintinline{haskellc}`dt :: Dest [a]` which hasn't been filled yet.
 
   \item \mintinline{haskellc}`concat` concates two difference lists,
-    \mintinline{haskellc}`i1` and \mintinline{haskellc}`i2`, by
-    using \mintinline{haskellc}`fillComp` to fill the destination \mintinline{haskellc}`dt1`
+    \mintinline{haskellc}`i1` and \mintinline{haskellc}`i2`, as shown in figure~\ref{fig:schema-dlist-concat}. It uses \mintinline{haskellc}`fillComp` to fill the destination \mintinline{haskellc}`dt1`
     of the first difference list with the
     root of the second difference list \mintinline{haskellc}`i2`. The resulting \mintinline{haskellc}`Incomplete`
     object hence has the same root as the first list, holds the
-    elements of both lists, and inherits the hole of the second list as shown in figure~\ref{fig:schema-dlist-concat}. Memory-wise,
+    elements of both lists, and inherits the hole of the second list. Memory-wise,
     \mintinline{haskellc}`concat` just writes the address of the root
     of the second list into the hole of the first one; no move is
     required.
