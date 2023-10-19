@@ -189,7 +189,7 @@ The implementation of destination-backed difference lists is presented in Table~
     \label{fig:schema-alloc}
   \end{minipage}\hspace{0.5cm}%
   \begin{minipage}{0.7\textwidth}
-    \includegraphics[width=9.7cm]{dlist-toList.png}
+    \includegraphics[width=10cm]{dlist-toList.png}
     \caption{Memory behavior of \mintinline{haskellc}`toList i`}
     \label{fig:schema-dlist-toList}
   \end{minipage}
@@ -602,15 +602,15 @@ The resulting structure \mintinline{haskellc}`comp` is morally a \mintinline{has
 \end{unbreakable}
 
 \begin{figure}[t]\centering
-  \includegraphics[width=8cm]{fillCons.png}
+  \includegraphics[width=9.5cm]{fillCons.png}
   \caption{Memory behavior of \mintinline{haskellc}`fill @'(:) :: Dest [a] ⊸ (Dest a, Dest [a])`}
   \label{fig:schema-fillCons}
 
-  \includegraphics[width=6.8cm]{fillNil.png}
+  \includegraphics[width=7.5cm]{fillNil.png}
   \caption{Memory behavior of \mintinline{haskellc}`fill @'[] :: Dest [a] ⊸ ()`}
   \label{fig:schema-fillNil}
 
-  \includegraphics[width=7.6cm]{fillLeaf.png}
+  \includegraphics[width=8.3cm]{fillLeaf.png}
   \caption{Memory behavior of \mintinline{haskellc}`fillLeaf :: a → Dest [a] ⊸ ()`}
   \label{fig:schema-fillLeaf}
 \end{figure}
@@ -624,8 +624,7 @@ The tension with the compiler is of lesser extent. The latter can make some opti
 \subsection{Compact Regions}\label{ssec:impl-compact-regions}
 
 As we teased in subsection~\ref{ssec:parser-sexpr}, \emph{compact regions} from~\cite{yang_efficient_2015} make it very convenient to implement DPS programming in 
-Haskell. A compact region represents a memory area in the Haskell heap, that is almost fully independent from the GC and the rest of the garbage-collected heap. For the GC, each compact region is seen as a single heap object with a single lifetime. The GC can efficiently check whether there is at least one pointer in the garbage-collected heap that points into the region, and while that is the case, the region is kept alive. When this condition is no longer matched, the whole region is discarded. The result is that the GC won't traverse any node from the region: it is treated as one opaque block (even though it is actually implemented as a chain of blocks of the same size, that doesn't change the principle). Also, compact regions are immobile in memory; the GC won't move them, so destinations can be just implemented as a wrapper over the raw pointer type of Haskell, \mintinline{haskellc}`Addr#`:\\
-\mintinline{haskellc}`data Dest r a = ¤Dest Addr#`
+Haskell. A compact region represents a memory area in the Haskell heap, that is almost fully independent from the GC and the rest of the garbage-collected heap. For the GC, each compact region is seen as a single heap object with a single lifetime. The GC can efficiently check whether there is at least one pointer in the garbage-collected heap that points into the region, and while that is the case, the region is kept alive. When this condition is no longer matched, the whole region is discarded. The result is that the GC won't traverse any node from the region: it is treated as one opaque block (even though it is actually implemented as a chain of blocks of the same size, that doesn't change the principle). Also, compact regions are immobile in memory; the GC won't move them, so destinations can be just implemented as a wrapper over the raw pointer type of Haskell (\mintinline{haskellc}`Addr#`): \mintinline{haskellc}`data Dest r a = ¤Dest Addr#`
 
 Using compact regions to implement DPS programming, we completely elude the concerns of tension between the garbage collector and incomplete structures we want to build. Instead, we get two extra restrictions. First, every structure in a region must be in a fully-evaluated form. Regions are strict, and heap object that is copied to a region is first forced into normal form. This might not always be a win; sometimes laziness, which is the default \emph{modus operandi} of the garbage-collected heap, might be preferable.
 
@@ -703,7 +702,7 @@ M1 D (MetaData "Maybe" "GHC.Maybe" "base" False) (
 
 We see that there are two different possible constructors (indicated by lines starting with \mintinline{haskellc}`M1 C`): the first one, \mintinline{haskellc}`¤Nothing`, has zero field (indicated by \mintinline{haskellc}`U1`), and the second one, \mintinline{haskellc}`¤Just`, has one field of type \mintinline{haskellc}`a` (indicated by \mintinline{haskellc}`K1 R a`).
 
-With a bit of fancy type-level metaprogramming\footnote{see \texttt{src/Compact/Pure/Internal.hs:418} in~\cite{linear_dest}}, we can extract the parts of that representation which are related to the constructor \mintinline{haskellc}`lCtor` and use them inside the instance head of \mintinline{haskellc}`Fill lCtor a` so the implementation of \mintinline{haskellc}`fill` can depend on them. That's how we can give the proper types to the destinations returned by that function for a specified constructor. The \mintinline{haskellc}`DestsOf lCtor a :: Type` typeclass also uses the generic representation of \mintinline{haskellc}`a` to extract what it needs to know about \mintinline{haskellc}`lCtor` and its fields.
+With a bit of fancy type-level metaprogramming\footnote{see \texttt{src/Compact/Pure/Internal.hs:418} in~\cite{linear_dest}}, we can extract the parts of that representation which are related to the constructor \mintinline{haskellc}`lCtor` and use them inside the instance head of \mintinline{haskellc}`Fill lCtor a` so the implementation of \mintinline{haskellc}`fill` can depend on them. That's how we can give the proper types to the destinations returned by that function for a specified constructor. The \mintinline{haskellc}`DestsOf lCtor a :: Type` type family also uses the generic representation of \mintinline{haskellc}`a` to extract what it needs to know about \mintinline{haskellc}`lCtor` and its fields.
 
 \subsection{Changes to GHC internals and RTS}\label{ssec:impl-ghc}
 
@@ -724,11 +723,11 @@ As a result, we will need two primitives two properly allocate a hollow construc
 
 All the alterations to GHC that will be showed here are available in full form in~\cite{custom_ghc}.
 
-\paragraph{External primop: allocate hollow constructor through the RTS}
+\paragraph{External primop: allocate a hollow constructor in a region}
 
 The implementation of the external primop is presented in Table~\ref{table:impl-compactAddHollow}. The \mintinline{c}`stg_compactAddHollowzh` function (whose equivalent on the Haskell side is \mintinline{haskellc}`compactAddHollow#`) is mostly a glorified call to the \mintinline{haskellc}`ALLOCATE` macro defined in the \mintinline{text}`Compact.cmm` file too, which tries to do a pointer-bumping allocation in the current block of the compact region if there is enough space, and otherwise add a new block to the region.
 
-As announced, this external primop takes the info table pointer of the constructor to allocate as its second parameter (\mintinline{c}`W_ info`) because it cannot access that information itself. The info table pointer is then written to the first word of the heap object in the call to \mintinline{c}`SET_HDR`.
+As announced, this primop takes the info table pointer of the constructor to allocate as its second parameter (\mintinline{c}`W_ info`) because it cannot access that information itself. The info table pointer is then written to the first word of the heap object in the call to \mintinline{c}`SET_HDR`.
 
 \paragraph{Internal primop: reify an info table label into a runtime value}
 
