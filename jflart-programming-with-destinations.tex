@@ -316,10 +316,7 @@ In client-server applications, the following pattern is very frequent: the serve
 
 Instead, we'd rather consider the deserialized payload as a single heap object, which doesn't need to be traversed, and is freed as a block. GHC supports this use-case with a feature named \emph{compact regions}~\cite{yang_efficient_2015}. Compact regions contain normal heap objects, but the GC never follows pointers into a compact region. The flipside is that a compact region can only be collected when all of the objects it contains are dead.
 
-The main API function for compact regions is \mintinline{haskellc}`compact :: a → Compact a`, which takes an arbitrary value and copies it in a compact region, returning a wrapper which contains both the newly-copied object and some region info. This wrapper can be discarded with \mintinline{haskellc}`getCompact :: Compact a → a`. For our use-case, we can have\\
-\mintinline{haskellc}`let deserializedPayload = getCompact (compact (deserialize payload))`
-
-Then the internal pointers of \mintinline{haskellc}`deserializedPayload` will indeed never be followed by the GC, and the entirety of \mintinline{haskellc}`deserializedPayload` will be collected at the same time.
+With compact regions, we would first deserialize the payload normally, in the GC heap, then copy it into a compact region and only reference the copy. Then the internal pointers of the (final) deseralized payload will indeed never be followed by the GC, and the entirety of the deserialized payload will be collected at the same time.
 
 However, we are allocating two copies of the deserialized payload: one in the regular GC heap, and one in the compact region. This is wasteful, it would be much better to be able to allocate directly in the compact region. It can be done with destinations.
 
