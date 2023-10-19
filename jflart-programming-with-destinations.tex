@@ -36,7 +36,7 @@
 \newcommand{\cmd}[1]{\texttt{\textbackslash {#1}}}
 \newcommand{\mpar}{\text{\,\textramshorns\,}}
 \newcommand{\dest}{-\prec}
-\newcommand{\TODO}[1]{{\color{red}\large #1}}
+%\newcommand{\TODO}[1]{{\color{red}\large #1}}
 \newcommand{\mnew}[1]{\colorbox{green!50}{#1}}
 \newcommand{\muline}[1]{\uline{#1}}
 \newcommand{\mold}[1]{\colorbox{red!50}{#1}}
@@ -129,7 +129,6 @@ Two somewhat uncommon Haskell operators are used in the rest of this article:
 \mintinline{haskellc}`(<&>) :: Functor ¤f ⇒ ¤f a ⊸ (a ⊸ b) ⊸ ¤f b` is the same as \mintinline{haskellc}`fmap` with the order of the arguments flipped: \mintinline{haskellc}`i <&> (\d → f d) = fmap (\d → f d) i`;% It will be used to map over the destinations \mintinline{haskellc}`d` associated to an incomplete data structure \mintinline{haskellc}`i`;
 
 \mintinline{haskellc}`(;;) :: () ⊸ b ⊸ b` is used to chain a linear operation returning \mintinline{haskellc}`()` with one returning a value of type \mintinline{haskellc}`b` without breaking linearity.
-\TODO{Arnaud: do we need to introduce a little more Haskell?}
 
 \section{Motivating examples for DPS programming}\label{sec:motivating-examples}
 
@@ -510,10 +509,10 @@ In Haskell, types aren't linear by themselves in Linear Haskell. Instead, functi
 \begin{unbreakable}
 {\small
 \begin{minted}[linenos]{haskellc}
-createR :: () ⊸ Resource   -- no way to indicate that the result must be used once
+createR :: () ⊸ Resource    -- no way to indicate that the result must be used once
 consumeR :: Resource ⊸ ()
 
-exampleShouldFail :: () =  -- accepted even though x is consumed twice
+exampleShouldFail :: () =    -- accepted even though x is consumed twice
   let x = createR ¤() in consumeR x ;; consumeR x
 \end{minted}
 }
@@ -575,7 +574,7 @@ The last part of the API is the one in charge of actually building the structure
 
 \mintinline{haskellc}`fillLeaf :: ∀ a. a → Dest a ⊸ ()` will use a value of type \mintinline{haskellc}`a` to fill the hole represented by the destination. The destination is consumed linearly, but the value to fill the hole isn't (as indicated by the first non-linear arrow). Memory-wise, the address of the object \mintinline{haskellc}`a` is written into the memory cell pointed to by the destination (see Figure~\ref{fig:schema-fillLeaf}).
 
-\mintinline{haskellc}`fillComp :: ∀ a b. Incomplete a b ⊸ Dest a ⊸ b` is used to plug two \mintinline{haskellc}`Incomplete` objects together. The parent \mintinline{haskellc}`Incomplete` object into which the child \mintinline{haskellc}`Incomplete` will be plugged isn't represented in the signature of the function. Instead, only the hole of the parent that will host the address of the child is represented by \mintinline{haskellc}`Dest a`; and \mintinline{haskellc}`Incomplete a b` in the signature refers to the child object. A call to \mintinline{haskellc}`fillComp` always takes place in the scope of \mintinline{haskellc}`fmap`/\mintinline{haskellc}`<&>` over the parent object:
+\mintinline{haskellc}`fillComp :: ∀ a b. Incomplete a b ⊸ Dest a ⊸ b` is used to plug two \mintinline{haskellc}`Incomplete` objects together. The target \mintinline{haskellc}`Incomplete` isn't represented in the signature of the function. Instead, only the target hole that will receive the address of the child is represented by \mintinline{haskellc}`Dest a`; and \mintinline{haskellc}`Incomplete a b` in the signature refers to the child object. A call to \mintinline{haskellc}`fillComp` always takes place in the scope of \mintinline{haskellc}`fmap`/\mintinline{haskellc}`<&>` over the parent object:
 
 \begin{unbreakable}
 {\small
@@ -593,7 +592,7 @@ The resulting structure \mintinline{haskellc}`comp` is morally a \mintinline{has
 
 \mintinline{haskellc}`fill :: ∀ lCtor a. Dest a ⊸ DestsOf lCtor a` lets us build structures using layers of hollow constructors. It takes a constructor as a type parameter (\mintinline{haskellc}`lCtor`) and allocates a hollow heap object that has the same header/tag as the specified constructor but unspecified fields. The address of the allocated hollow constructor is written in the destination that is passed to \mintinline{haskellc}`fill`. As a result, one hole is now filled, but there is one new hole in the structure for each field left unspecified in the hollow constructor that is now part of the bigger structure. So \mintinline{haskellc}`fill` returns one destination of matching type for each of the fields of the constructor. The memory behavior of \mintinline{haskellc}`fill @'(:) :: Dest [a] ⊸ (Dest a, Dest [a])` is given in Figure~\ref{fig:schema-fillCons} and the one of \mintinline{haskellc}`fill @'[] :: Dest [a] ⊸ ()` is given in Figure~\ref{fig:schema-fillNil}.
 
-\mintinline{haskellc}`DestsOf` is a type family (i.e. a function operating on types and returning a type) whose role is to map a constructor to the type of destinations for its fields. For example, \mintinline{haskellc}`DestsOf '[] [a] = ()` and \mintinline{haskellc}`DestsOf '(:) [a] = (Dest a, Dest [a])`. More generally, there is a duality between the type of a constructor \mintinline[escapeinside=°°]{haskellc}`¤Ctor :: (¤f°$_i$°)°$_{i \in 1..n}$° → a` and the associated destination-filling function \mintinline[escapeinside=°°]{haskellc}`fill @'Ctor :: Dest a ⊸ (Dest ¤f°$_i$°)°$_{i \in 1..n}$°`: types flip side around the arrow, and a \mintinline{haskellc}`Dest` prefix is added to each type. Destination-based data building can be seen as more general than the usual bottom-up constructor approach, as we can recover \mintinline{haskellc}`¤Ctor` from the associated function \mintinline[escapeinside=°°]{haskellc}`fill @'Ctor`, but not the reverse:
+\mintinline{haskellc}`DestsOf` is a type family (i.e. a function operating on types) whose role is to map a constructor to the type of destinations for its fields. For example, \mintinline{haskellc}`DestsOf '[] [a] = ()` and \mintinline{haskellc}`DestsOf '(:) [a] = (Dest a, Dest [a])`. More generally, there is a duality between the type of constructors \mintinline[escapeinside=°°]{haskellc}`¤Ctor :: (¤f°$_i$°)°$_{i \in 1..n}$° → a` and of the associated destination-filling functions \mintinline[escapeinside=°°]{haskellc}`fill @'Ctor :: Dest a ⊸ (Dest ¤f°$_i$°)°$_{i \in 1..n}$°`. Destination-based data building can be seen as more general than the usual bottom-up constructor approach, as we can recover \mintinline{haskellc}`¤Ctor` from the associated function \mintinline[escapeinside=°°]{haskellc}`fill @'Ctor`, but not the reverse:
 
 \begin{unbreakable}
 {\small
