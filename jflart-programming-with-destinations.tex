@@ -257,9 +257,25 @@ Consider the problem, which Okasaki attributes to Launchbury~\cite{okasaki_bfs_2
   by the numbers $1\ldots|T|$ in breadth-first order.
 \end{quote}
 
-This problem admits a straightforward implementation if we're allowed to mutate trees. But a pure implementation is quite tricky: it's the entire subject of Okasaki's paper~\cite{okasaki_bfs_2000} as well as the earlier~\cite{jones_gibbons_linearbfs_93}. More recently, a very elegant, albeit very clever, solution was proposed in~\cite{gibbons_phases_2023}.
+This problem admits a straightforward implementation if we're allowed
+to mutate trees. Nevertheless, a pure implementation is quite
+tricky~\cite{okasaki_bfs_2000,jones_gibbons_linearbfs_93} and a very
+elegant, albeit very clever, solution was proposed
+recently~\cite{gibbons_phases_2023}.
 
-With destinations as first-class objects in our toolbelt, we can implement a solution that is both easy to come up with and efficient, doing only a single traversal pass on the original tree. The main idea is to keep a queue of pairs of a tree to be relabeled and the destination where the the relabeled result is expected (as destinations can be stored in arbitrary containers!). DPS programming make it possible to leave some parts of the tree \emph{unfinished} for some time, and to come back to them later when it's their turn to be processed, as in an imperative implementation. The implementation provided in Table~\ref{table:impl-bfs-tree-traversal}, really implements the slightly more general \mintinline{haskellc}`mapAccumBFS`, which traverses a tree in breadth-first order and applies a relabeling function that can depend on a state.
+
+
+With destinations as first-class objects in our toolbelt, we can
+implement a solution that is both easy to come up with and efficient,
+doing only a single breadth-first traversal pass on the original
+tree. The main idea is to keep a queue of pairs of a tree to be
+relabeled and of the destination where the relabeled result is
+expected (as destinations can be stored in arbitrary containers!) and
+process each of them when their turn comes. The implementation
+provided in Table~\ref{table:impl-bfs-tree-traversal}, implements the
+slightly more general \mintinline{haskellc}`mapAccumBFS` which applies
+on each node of the tree a relabeling function that can depend on a
+state.
 
 \begin{table}[t]
 \small
