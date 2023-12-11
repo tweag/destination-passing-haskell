@@ -507,7 +507,7 @@ Conversely, the function \mintinline{haskellc}`toIncomplete` takes a non-linear 
 
 \subsection{Ensuring write-once model for holes with linear types}\label{ssec:api-linearity}
 
-Types aren't linear by themselves in Linear Haskell. Instead, functions can be made to use their arguments linearly or not. So in direct style, where the producer of a resource isn't aware of the consumers, there is no way to state that the resource must be used exactly once:
+Types aren't linear by themselves in Linear Haskell. Instead, functions can be made to use their arguments linearly or not. So in direct style, where the consumer of a resource isn't tied to the resource creation site, there is no way to state that the resource must be used exactly once:
 
 \begin{unbreakable}
 {\small
@@ -521,7 +521,7 @@ exampleShouldFail :: () =    -- accepted even though x is consumed twice
 }
 \end{unbreakable}
 
-The solution is to make the production of the resource implicit but force the consumers to become explicit so their signature can be checked:
+The solution is to force the consumer of a resource to become explicit at the creation site of the resource, and to check through its signature that it is indeed a linear continuation:
 
 \begin{unbreakable}
 {\small
@@ -534,9 +534,9 @@ exampleFail :: () = withR (\x → consumeR °\mold{x}° ; consumeR °\mold{x}°
 }
 \end{unbreakable}
 
-The \mintinline{haskellc}`Resource` type is in positive position in the signature of \mintinline{haskellc}`withR`, so that function should somehow know how to produce a \mintinline{haskellc}`Resource`, but this is opaque for the user. As the consumer of the resource is now explicitly passed to \mintinline{haskellc}`withR` (as a callback), \mintinline{haskellc}`withR` can enforce that this callback will use the resource exactly once, through its signature.
+The \mintinline{haskellc}`Resource` type is in positive position in the signature of \mintinline{haskellc}`withR`, so that function should somehow know how to produce a \mintinline{haskellc}`Resource`, but this is opaque for the user. What matters is that a resource can only be accessed by providing a linear continuation to \mintinline{haskellc}`withR`.
 
-Still, this is not enough; because \mintinline{haskellc}`\x → x` is indeed a linear callback, one could use \mintinline{haskellc}`withR (\x → x)` to leak a \mintinline{haskellc}`Resource`, and then use it in a non-linear fashion in the outside world. Hence we must forbid the resource from appearing anywhere in the return type of the callback. To do that, we will ask the return type to be wrapped in \mintinline{haskellc}`Ur`: because the resource comes from the left of a linear arrow, and doesn't implement \mintinline{haskellc}`Movable`, it cannot be wrapped in \mintinline{haskellc}`Ur` without breaking linearity, so won't be able to escape (see Section~\ref{sec:intro-linearity}). On the other hand, a \mintinline{haskellc}`Movable` value of type \mintinline{haskellc}`()` or \mintinline{haskellc}`Int` can be returned:
+Still, this is not enough; because \mintinline{haskellc}`\x → x` is indeed a linear continuation, one could use \mintinline{haskellc}`withR (\x → x)` to leak a \mintinline{haskellc}`Resource`, and then use it in a non-linear fashion in the outside world. Hence we must forbid the resource from appearing anywhere in the return type of the continuation. To do that, we ask the return type to be wrapped in \mintinline{haskellc}`Ur`: because the resource comes from the left of a linear arrow, and doesn't implement \mintinline{haskellc}`Movable`, it cannot be wrapped in \mintinline{haskellc}`Ur` without breaking linearity (see Section~\ref{sec:intro-linearity}). On the other hand, a \mintinline{haskellc}`Movable` value of type \mintinline{haskellc}`()` or \mintinline{haskellc}`Int` can be returned:
 \begin{unbreakable}
 {\small
 \begin{minted}[linenos,escapeinside=°°]{haskellc}
@@ -551,7 +551,7 @@ exampleFail' :: Ur Resource = withR' (\x → °\mold{¤Ur x}°) -- not linear
 
 This explicit \emph{scope function} trick will no longer be necessary when linear constraints will land in GHC (see \cite{spiwack_linearly_2022}). In the meantime, this principle has been used to ensure safety of the DPS implementation in Haskell.
 
-% \mintinline{haskellc}`Incomplete a b` has a linear functor instance to map on the \mintinline{haskellc}`b` side (the one carrying destinations) which forces the callback to be linear:
+% \mintinline{haskellc}`Incomplete a b` has a linear functor instance to map on the \mintinline{haskellc}`b` side (the one carrying destinations) which forces the continuation to be linear:
 
 % {\small
 % \begin{minted}[escapeinside=°°]{haskellc}
@@ -569,7 +569,7 @@ This explicit \emph{scope function} trick will no longer be necessary when linea
 
 If an \mintinline{haskellc}`Incomplete` object is used linearly, then its destinations will be written to exactly once; this is ensured by the signature of \mintinline{haskellc}`fmap` for \mintinline{haskellc}`Incomplete`s. So we need to unsure that \mintinline{haskellc}`Incomplete` objects are used linearly. For that, we introduce a new token type \mintinline{haskellc}`Token`. A token can be linearly exchanged one for one with an \mintinline{haskellc}`Incomplete` of any type through \mintinline{haskellc}`alloc`, and can be linearly duplicated with \mintinline{haskellc}`dup2` or linearly deleted with \mintinline{haskellc}`consume`. However, it cannot be linearly stored in \mintinline{haskellc}`Ur` as it doesn't implement \mintinline{haskellc}`Movable`.
 
-As in the example above, we just ensure that \mintinline{haskellc}`withToken :: (Token ⊸ Ur a) ⊸ Ur a` is the only source of \mintinline{haskellc}`Token`s around. Now, to produce an \mintinline{haskellc}`Incomplete` with \mintinline{haskellc}`alloc`, one must get a token first, so has to be in the scope of a callback which is passed to \mintinline{haskellc}`withToken`. Putting either a \mintinline{haskellc}`Token` or \mintinline{haskellc}`Incomplete` in \mintinline{haskellc}`Ur` inside the callback would then make the callback non-linear. So none of them can escape the scope as is, but a structure built from an \mintinline{haskellc}`Incomplete` and finalized with \mintinline{haskellc}`fromIncomplete` or \mintinline{haskellc}`fromIncomplete_` would be automatically wrapped in \mintinline{haskellc}`Ur`, thus could safely escape the scope\footnote{This is why the \mintinline{haskellc}`fromIncomplete'` and \mintinline{haskellc}`fromIncomplete_'` variants aren't that useful in the memory-safe API: the built structure would be stuck in the scope function without its \mintinline{haskellc}`Ur` free pass around.}.
+As in the example above, we just ensure that \mintinline{haskellc}`withToken :: (Token ⊸ Ur a) ⊸ Ur a` is the only source of \mintinline{haskellc}`Token`s around. Now, to produce an \mintinline{haskellc}`Incomplete` with \mintinline{haskellc}`alloc`, one must get a token first, so has to be in the scope of a continuation which is passed to \mintinline{haskellc}`withToken`. Putting either a \mintinline{haskellc}`Token` or \mintinline{haskellc}`Incomplete` in \mintinline{haskellc}`Ur` inside the continuation would then make the continuation non-linear. So none of them can escape the scope as is, but a structure built from an \mintinline{haskellc}`Incomplete` and finalized with \mintinline{haskellc}`fromIncomplete` or \mintinline{haskellc}`fromIncomplete_` would be automatically wrapped in \mintinline{haskellc}`Ur`, thus could safely escape the scope\footnote{This is why the \mintinline{haskellc}`fromIncomplete'` and \mintinline{haskellc}`fromIncomplete_'` variants aren't that useful in the memory-safe API: the built structure would be stuck in the scope function without its \mintinline{haskellc}`Ur` free pass around.}.
 
 \subsection{Filling functions for destinations}
 
@@ -639,7 +639,7 @@ Secondly, data in a region cannot contain pointers to the garbage-collected heap
 
 A typeclass \mintinline{haskellc}`Region r` is also needed to carry around the details about a region that are needed for the implementation. This typeclass has a single method \mintinline{haskellc}`reflect`, not available to the user, that returns the \mintinline{haskellc}`RegionInfo` structure associated to identifier \mintinline{haskellc}`r`.
 
-The \mintinline{haskellc}`withRegion` function is the new addition to the modified API presented in Table~\ref{table:destination-api-regions} (the \mintinline{haskellc}`Token` type and its associated functions \mintinline{haskellc}`dup2` and \mintinline{haskellc}`consume` are unchanged). \mintinline{haskellc}`withRegion` is mostly a refinement over the \mintinline{haskellc}`withToken` function from Table~\ref{table:destination-api}. It receives a callback in which \mintinline{haskellc}`r` must be a free type variable. It then spawns both a new compact region and a fresh type \mintinline[escapeinside=°°]{haskellc}`°\muline{r}°` (not a variable), and then uses \mintinline{haskellc}`Data.Reflection.reify` from the \mintinline{text}`reflection` library to provide an instance of \mintinline[escapeinside=°°]{haskellc}`Region °\muline{r}°` on-the-fly that links \mintinline[escapeinside=°°]{haskellc}`°\muline{r}°` and the \mintinline{haskellc}`RegionInfo` for the new region, and calls the callback with \mintinline{haskellc}`r` instantiated to \mintinline[escapeinside=°°]{haskellc}`°\muline{r}°`.
+The \mintinline{haskellc}`withRegion` function is the new addition to the modified API presented in Table~\ref{table:destination-api-regions} (the \mintinline{haskellc}`Token` type and its associated functions \mintinline{haskellc}`dup2` and \mintinline{haskellc}`consume` are unchanged). \mintinline{haskellc}`withRegion` is mostly a refinement over the \mintinline{haskellc}`withToken` function from Table~\ref{table:destination-api}. It receives a continuation in which \mintinline{haskellc}`r` must be a free type variable. It then spawns both a new compact region and a fresh type \mintinline[escapeinside=°°]{haskellc}`°\muline{r}°` (not a variable), and then uses \mintinline{haskellc}`Data.Reflection.reify` from the \mintinline{text}`reflection` library to provide an instance of \mintinline[escapeinside=°°]{haskellc}`Region °\muline{r}°` on-the-fly that links \mintinline[escapeinside=°°]{haskellc}`°\muline{r}°` and the \mintinline{haskellc}`RegionInfo` for the new region, and calls the continuation with \mintinline{haskellc}`r` instantiated to \mintinline[escapeinside=°°]{haskellc}`°\muline{r}°`.
 
 \begin{table}[t]
 \small
