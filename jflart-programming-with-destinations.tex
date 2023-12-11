@@ -449,7 +449,7 @@ parseSListDPS bs i d = case bs !? i of
 \label{table:impl-parser-dps}
 \end{table}
 
-We will see that destinations can bring very significative performance gains with only very little stylistic changes in the code. Accumulators of tail-recursive functions just have to be changed into destinations. Instead of writing elements into a list that will be reversed at the end as we did before, the program in the destination style will directly write the elements into their final location:
+We will see that destinations can bring very significative performance gains with only very little stylistic changes in the code. Accumulators of tail-recursive functions just have to be changed into destinations. Instead of writing elements into a list that will be reversed at the end as we did before, the program in the destination style will directly write the elements into their final location.
 
 Code for \mintinline{haskellc}`parseSListDPS` is presented in Table~\ref{table:impl-parser-dps}. Let's see what changed compared to the naive implementation:
 
