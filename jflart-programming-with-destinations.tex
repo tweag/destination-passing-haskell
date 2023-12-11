@@ -507,7 +507,7 @@ Conversely, the function \mintinline{haskellc}`toIncomplete` takes a non-linear 
 
 \subsection{Ensuring write-once model for holes with linear types}\label{ssec:api-linearity}
 
-In Haskell, types aren't linear by themselves in Linear Haskell. Instead, functions can be made to use their arguments linearly or not. So in direct style, where the producer of a resource isn't aware of the consumers, there is no way to state that the resource must be used exactly once:
+Types aren't linear by themselves in Linear Haskell. Instead, functions can be made to use their arguments linearly or not. So in direct style, where the producer of a resource isn't aware of the consumers, there is no way to state that the resource must be used exactly once:
 
 \begin{unbreakable}
 {\small
