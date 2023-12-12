@@ -165,7 +165,7 @@ The implementation of destination-backed difference lists is presented in Table~
   
   type DList a = Incomplete [a] (Dest [a])
   
-  alloc :: DList a
+  alloc :: DList a  -- API primitive (simplified signature w.r.t. Section 4)
   
   append :: DList a ⊸ a → DList a
   append i x =
