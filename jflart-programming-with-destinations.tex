@@ -284,7 +284,7 @@ relabelDPS tree = fst (mapAccumBFS (\st _ → (st + 1, st)) 1 tree)
 
 mapAccumBFS :: ∀ a b s. (s → a → (s, b)) → s → Tree a → (Tree b, s)
 mapAccumBFS f s0 tree =
-  fromIncomplete' (
+  fromIncomplete' (    -- simplified alloc signature w.r.t. Section 4
     alloc <&> \dtree → go s0 (singleton (¤Ur tree, dtree)))
   where
     go :: s → Queue (Ur (Tree a), Dest (Tree b)) ⊸ Ur s
