@@ -439,8 +439,8 @@ parseSListDPS bs i d = case bs !? i of
     | x == ')' → °\mnew{fill @'[] d}° ; ¤Right i
     | isSpace x → parseSListDPS bs (i + 1) d
     | otherwise →
-        let !(dh, dt) = °\mnew{fill @'(:) d}°
-         in case parseSExprDPS bs i °\mnew{dh}° of
+        case °\mnew{fill @'(:) d}° of
+          (dh, dt) -> case parseSExprDPS bs i °\mnew{dh}° of
               ¤Left err → fill @'[] dt ; ¤Left err
               ¤Right endPos → parseSListDPS bs (endPos + 1) °\mnew{dt}°
 \end{minted}
