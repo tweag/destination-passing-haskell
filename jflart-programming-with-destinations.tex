@@ -477,7 +477,7 @@ fmap                :: ∀ a b c. (b ⊸ c) ⊸ Incomplete a b ⊸ Incomplete b 
 alloc               :: ∀ a.     Token ⊸ Incomplete a (Dest a)
 intoIncomplete      :: ∀ a.     Token ⊸ a → Incomplete a ()
 fromIncomplete_     :: ∀ a.     Incomplete a () ⊸ Ur a
-fromIncomplete      :: ∀ a b.   Incomplete a (Ur b) ⊸ Ur (a, b)
+fromIncomplete      :: ∀ a b.   Incomplete a (Ur c) ⊸ Ur (a, c)
 
 data Dest a
 type family DestsOf lCtor a -- returns dests associated to fields of constructor
@@ -486,7 +486,7 @@ fillComp :: ∀ a b.     Incomplete a b ⊸ Dest a ⊸ b
 fillLeaf :: ∀ a.       a → Dest a ⊸ ()
 \end{minted}
 % fromIncomplete_' :: ∀ a.     Incomplete a () ⊸ a
-% fromIncomplete'  :: ∀ a b.   Incomplete a (Ur b) ⊸ (a, b)
+% fromIncomplete'  :: ∀ a b.   Incomplete a (Ur c) ⊸ (a, c)
 \caption{Destination API for Haskell}
 \label{table:destination-api}
 \end{table}
@@ -497,9 +497,9 @@ The main design principle behind DPS structure building is that no structure can
 
 Hence we introduce a new data type \mintinline{haskellc}`Incomplete a b` where \mintinline{haskellc}`a` stands for the type of the structure being built, and \mintinline{haskellc}`b` is the type of what needs to be linearly consumed before the structure can be read. The idea is that one can map over the \mintinline{haskellc}`b` side, which will contains destinations or containers with destinations inside, until there is no destination left but just a non-linear value that can safely escape (e.g. \mintinline{haskellc}`()`, \mintinline{haskellc}`Int`, or something wrapped in \mintinline{haskellc}`Ur`). When destinations from the \mintinline{haskellc}`b` side are consumed, the structure on the \mintinline{haskellc}`a` side is built little by little in a top-down fashion, as we showed in figures~\ref{fig:schema-dlist-append} and \ref{fig:schema-dlist-concat}. And when no destination remains on the \mintinline{haskellc}`b` side, the value of type \mintinline{haskellc}`a` no longer has holes, thus is ready to be released/read.
 
-It can be released in two ways: with \mintinline{haskellc}`fromIncomplete_`, the value on the \mintinline{haskellc}`b` side must be unit (\mintinline{haskellc}`()`), and just the complete \mintinline{haskellc}`a` is returned. With \mintinline{haskellc}`fromIncomplete`, the type on the \mintinline{haskellc}`b` side must be of the form \mintinline{haskellc}`Ur c`, and then the pair of type \mintinline{haskellc}`(a, c)` is returned.
+It can be released in two ways: with \mintinline{haskellc}`fromIncomplete_`, the value on the \mintinline{haskellc}`b` side must be unit (\mintinline{haskellc}`()`), and just the complete \mintinline{haskellc}`a` is returned, wrapped in \mintinline{haskellc}`Ur`. With \mintinline{haskellc}`fromIncomplete`, the type on the \mintinline{haskellc}`b` side must be of the form \mintinline{haskellc}`Ur c`, and then a pair \mintinline{haskellc}`Ur (a, c)` is returned.
 
-Because the leaves of the structure that has been built either come from non-linear sources (as \mintinline{haskellc}`fillLeaf :: a → Dest a ⊸ ()` consumes its first argument non-linearly) or are made of 0-ary constructors added with \mintinline{haskellc}`fill`, the whole structure can safely be used in a non-linear fashion. That's why \mintinline{haskellc}`fromIncomplete_` and \mintinline{haskellc}`fromIncomplete` actually wrap their result in \mintinline{haskellc}`Ur`. The variants \mintinline{haskellc}`fromIncomplete_'` and \mintinline{haskellc}`fromIncomplete'` that have been used in the beginning of this article just drop the \mintinline{haskellc}`Ur` wrapper.
+In fact, it safe to put the resulting value in \mintinline{haskellc}`Ur` because the leaves of the structure that has been built either come from non-linear sources (as \mintinline{haskellc}`fillLeaf :: a → Dest a ⊸ ()` consumes its first argument non-linearly) or are made of 0-ary constructors added with \mintinline{haskellc}`fill`, so the whole structure can safely be used in a non-linear fashion. Variants \mintinline{haskellc}`fromIncomplete_'` and \mintinline{haskellc}`fromIncomplete'` from the beginning of this article just drop the \mintinline{haskellc}`Ur` wrapper.
 
 Conversely, the function \mintinline{haskellc}`toIncomplete` takes a non-linear argument of type \mintinline{haskellc}`a` and wraps it into an \mintinline{haskellc}`Incomplete` with no destinations left to be consumed.
 
@@ -650,7 +650,7 @@ fmap            :: ∀ r a b c. (b ⊸ c) ⊸ Incomplete r a b ⊸ Incomplete r 
 alloc           :: ∀ r a.     Region r ⇒ Token ⊸ Incomplete r a (Dest r a)
 intoIncomplete  :: ∀ r a.     Region r ⇒ Token ⊸ a → Incomplete r a ()
 fromIncomplete_ :: ∀ r a.     Region r ⇒ Incomplete r a () ⊸ Ur a
-fromIncomplete  :: ∀ r a b.   Region r ⇒ Incomplete r a (Ur b) ⊸ Ur (a, b)
+fromIncomplete  :: ∀ r a b.   Region r ⇒ Incomplete r a (Ur c) ⊸ Ur (a, c)
 
 data Dest r a
 type family DestsOf lCtor r a
