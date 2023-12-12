@@ -149,8 +149,7 @@ In DPS, instead of encoding the concept of a write-once hole with a function, we
 
 With the function encoding, it isn't possible to read the list until a last element of type \mintinline{haskellc}`[a]` has been supplied to complete it. With the destination representation, this constraint must persists: the actual list \mintinline{haskellc}`[a]` shouldn't be readable until the accompanying destination is filled, as pattern-matching on the hole would lead to a dreaded \emph{segmentation fault}. This constraint is embodied by the \mintinline{haskellc}`Incomplete a b` type of our destination API: \mintinline{haskellc}`b` is what needs to be linearly consumed to make the \mintinline{haskellc}`a` readable. The \mintinline{haskellc}`b` side often carries the destinations of a structure. A difference list is then \mintinline{haskellc}`type DList a = Incomplete [a] (Dest [a])`: the \mintinline{haskellc}`Dest [a]` must be filled (with a \mintinline{haskellc}`[a]`) to get a readable \mintinline{haskellc}`[a]`.
 
-The implementation of destination-backed difference lists is presented in Table~\ref{table:impl-dlist}.
-
+The implementation of destination-backed difference lists is presented in Table~\ref{table:impl-dlist}. More details about the API primitives used by this implementation are given in Section~\ref{sec:api}. For now, it's important to note that \mintinline{haskellc}`fill` is a function taking a constructor as a type parameter (often used with \mintinline{haskellc}`@` for type parameter application, and \mintinline{haskellc}`'` to lift a constructor to a type).
 % Doesn't bring much more compared to fig:schema-dlist-concat
 % \begin{figure}[t]\centering
 %   \includegraphics[width=10cm]{fillComp.png}
