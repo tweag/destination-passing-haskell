@@ -593,15 +593,15 @@ The resulting structure \mintinline{haskellc}`comp` is morally a \mintinline{has
 
 \mintinline{haskellc}`fill :: ∀ lCtor a. Dest a ⊸ DestsOf lCtor a` lets us build structures using layers of hollow constructors. It takes a constructor as a type parameter (\mintinline{haskellc}`lCtor`) and allocates a hollow heap object that has the same header/tag as the specified constructor but unspecified fields. The address of the allocated hollow constructor is written in the destination that is passed to \mintinline{haskellc}`fill`. As a result, one hole is now filled, but there is one new hole in the structure for each field left unspecified in the hollow constructor that is now part of the bigger structure. So \mintinline{haskellc}`fill` returns one destination of matching type for each of the fields of the constructor. An example of memory behavior of \mintinline{haskellc}`fill @'(:) :: Dest [a] ⊸ (Dest a, Dest [a])` is given in Figure~\ref{fig:schema-fillCons} and the one of \mintinline{haskellc}`fill @'[] :: Dest [a] ⊸ ()` is given in Figure~\ref{fig:schema-fillNil}.
 
-\mintinline{haskellc}`DestsOf` is a type family (i.e. a function operating on types) whose role is to map a constructor to the type of destinations for its fields. For example, \mintinline{haskellc}`DestsOf '[] [a] = ()` and \mintinline{haskellc}`DestsOf '(:) [a] = (Dest a, Dest [a])`. More generally, there is a duality between the type of constructors \mintinline[escapeinside=°°]{haskellc}`¤Ctor :: (¤f°$_i$°)°$_{i \in 1..n}$° → a` and of the associated destination-filling functions \mintinline[escapeinside=°°]{haskellc}`fill @'Ctor :: Dest a ⊸ (Dest ¤f°$_i$°)°$_{i \in 1..n}$°`. Destination-based data building can be seen as more general than the usual bottom-up constructor approach, as we can recover \mintinline{haskellc}`¤Ctor` from the associated function \mintinline[escapeinside=°°]{haskellc}`fill @'Ctor`, but not the reverse:
+\mintinline{haskellc}`DestsOf` is a type family (i.e. a function operating on types) whose role is to map a constructor to the type of destinations for its fields. For example, \mintinline{haskellc}`DestsOf '[] [a] = ()` and \mintinline{haskellc}`DestsOf '(:) [a] = (Dest a, Dest [a])`. More generally, there is a duality between the type of a constructor \mintinline[escapeinside=°°]{haskellc}`¤Ctor :: (¤f°$_1\ldots\,$°¤f°$_n$°) → a` and of the associated destination-filling functions \mintinline[escapeinside=°°]{haskellc}`fill @'Ctor :: Dest a ⊸ (Dest ¤f°$_1\ldots\,$°Dest ¤f°$_n$°)`. Destination-based data building can be seen as more general than the usual bottom-up constructor approach, as we can recover \mintinline{haskellc}`¤Ctor` from the associated function \mintinline[escapeinside=°°]{haskellc}`fill @'Ctor`, but not the reverse:
 
 \begin{unbreakable}
 {\small
 \begin{minted}[linenos,escapeinside=°°]{haskellc}
-¤Ctor :: (¤f°$_i$°)°$_{i \in 1..n}$° → a
-¤Ctor (x°$_i$°)°$_{i \in 1..n}$° = fromIncomplete_' (
+¤Ctor :: (¤f°$_1\ldots\,$°¤f°$_n$°) → a
+¤Ctor (x°$_1\ldots\,$°x°$_n$°) = fromIncomplete_' (
   alloc <&> \(d :: Dest a) → case fill @'Ctor d of
-    (dx°$_i$°)°$_{i \in 1..n}$° → ;°$_{i \in 1..n}$° (fillLeaf x°$_i$° dx°$_i$°))
+    (dx°$_1\ldots\,$°dx°$_n$°) → fillLeaf x°$_1$° dx°$_1$° ; °$\ldots\,$° ; fillLeaf x°$_n$° dx°$_n$°)
 \end{minted}
 }
 \end{unbreakable}
