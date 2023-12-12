@@ -325,8 +325,7 @@ Let's see how a simple parser for S-expressions can be transformed into one usin
 Parsing an S-expression can be done concisely with three mutually recursive functions:
 \begin{itemize}
   \item \mintinline{haskellc}`parseSExpr` scans the next character, and either dispatches to \mintinline{haskellc}`parseSList` if it encounters an opening parenthesis, or to \mintinline{haskellc}`parseSString` if it encounters an opening quote, or eventually parses the string into a number or symbol;
-  \item \mintinline{haskellc}`parseSList` calls \mintinline{haskellc}`parseSExpr` to parse the next token, and then calls itself again until reaching a closing parenthesis, accumulating the parsed elements along the way;
-  \item \mintinline{haskellc}`parseSString` scans the input character by character and accumulates them until reaching a closing quote (taking escape sequences into consideration).
+  \item \mintinline{haskellc}`parseSList` calls \mintinline{haskellc}`parseSExpr` to parse the next token, and then calls itself again until reaching a closing parenthesis, accumulating the parsed elements along the way.
 \end{itemize}
 
 Only the implementation of \mintinline{haskellc}`parseSList` will be presented here as it is enough for our purpose, but the full implementation of both the naive and destination-based versions of the whole parser can be found in \mintinline{text}`src/Compact/Pure/SExpr.hs` of~\cite{linear_dest} .
