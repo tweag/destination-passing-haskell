@@ -125,11 +125,13 @@ The value \mintinline{haskellc}`(x, y)` is said to be consumed linearly only whe
 
 \paragraph{Operators}
 
-Two somewhat uncommon Haskell operators are used in the rest of this article:
+Some Haskell operators are often used in the rest of this article:
 
 \mintinline{haskellc}`(<&>) :: Functor ¤f ⇒ ¤f a ⊸ (a ⊸ b) ⊸ ¤f b` is the same as \mintinline{haskellc}`fmap` with the order of the arguments flipped: \mintinline{haskellc}`x <&> f = fmap f x`;% It will be used to map over the destinations \mintinline{haskellc}`d` associated to an incomplete data structure \mintinline{haskellc}`i`;
 
-\mintinline{haskellc}`(;) :: () ⊸ b ⊸ b` is used to chain a linear operation returning \mintinline{haskellc}`()` with one returning a value of type \mintinline{haskellc}`b` without breaking linearity.
+\mintinline{haskellc}`(;) :: () ⊸ b ⊸ b` is used to chain a linear operation returning \mintinline{haskellc}`()` with one returning a value of type \mintinline{haskellc}`b` without breaking linearity;
+
+\mintinline{haskellc}`Class ⇒ ...` is notation for typeclass constraints (resolved implicitly by the compiler).
 
 \section{Motivating examples for DPS programming}\label{sec:motivating-examples}
 
