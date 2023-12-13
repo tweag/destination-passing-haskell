@@ -718,13 +718,13 @@ Haskell's runtime system (RTS) is written in a mix of C and C-{}-. The RTS has m
 
 The info table is what defines both the layout and behavior of a heap object. All heap objects representing a same constructor (let's say \mintinline{haskellc}`¤Just`) have the same info table, even when the associated types are different (e.g. \mintinline{haskellc}`Maybe Int` and \mintinline{haskellc}`Maybe Bool`). Heap objects representing this constructor point to a label \mintinline{text}`<ctor>_con_info` that will be later resolved by the linker into an actual pointer to the shared info table.
 
-The RTS is in fact a static piece of code that is compiled once when GHC is built. The RTS has no direct way to access the information emitted during the compilation of a program. In other words, when the RTS runs, it has no way to inspect the source of the program that it runs and info table labels have long been replaced by actual pointers so it cannot look for them either.
+The RTS is in fact a static piece of code that is compiled once when GHC is built. So the RTS has no direct way to access the information emitted during the compilation of a program. In other words, when the RTS runs, it has no way to inspect the program that it runs and info table labels have long been replaced by actual pointers so it cannot find them itself. But it is the one which knows how to allocate space inside a compact region.
 
 As a result, I've needed to extend GHC with two primitives to be able allocate a hollow constructor heap object:
 
 \begin{itemize}
-\item one \emph{external primop} to allocate space into a compact region for a hollow constructor. This primop will be implemented inside the RTS as it is the only one who knows how to deal with compact regions;
-\item one \emph{internal primop} (internal primops are macros which generates C-{}- code) that will be fully resolved  into a normal albeit static value representing the info table pointer of a given constructor. This value will be passed as an argument to the aforementioned external primop.
+\item one \emph{external primop} to allocate space inside a compact region for a hollow constructor. This primop has to be implemented inside the RTS for the aforementioned reasons;
+\item one \emph{internal primop} (internal primops are macros which generates C-{}- code) that will be resolved into a normal albeit static value representing the info table pointer of a given constructor. This value will be passed as an argument to the external primop.
 \end{itemize}
 
 All the alterations to GHC that will be showed here are available in full form in~\cite{custom_ghc}.
