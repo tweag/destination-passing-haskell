@@ -502,7 +502,7 @@ It can be released in two ways: with \mintinline{haskellc}`fromIncomplete_`, the
 
 In fact, it safe to put the resulting value in \mintinline{haskellc}`Ur` because the leaves of the structure that has been built either come from non-linear sources (as \mintinline{haskellc}`fillLeaf :: a → Dest a ⊸ ()` consumes its first argument non-linearly) or are made of 0-ary constructors added with \mintinline{haskellc}`fill`, so the whole structure can safely be used in a non-linear fashion. Variants \mintinline{haskellc}`fromIncomplete_'` and \mintinline{haskellc}`fromIncomplete'` from the beginning of this article just drop the \mintinline{haskellc}`Ur` wrapper.
 
-Conversely, the function \mintinline{haskellc}`toIncomplete` takes a non-linear argument of type \mintinline{haskellc}`a` and wraps it into an \mintinline{haskellc}`Incomplete` with no destinations left to be consumed.
+Conversely, the function \mintinline{haskellc}`intoIncomplete` takes a non-linear argument of type \mintinline{haskellc}`a` and wraps it into an \mintinline{haskellc}`Incomplete` with no destinations left to be consumed.
 
 \subsection{Ensuring write-once model for holes with linear types}\label{ssec:api-linearity}
 
