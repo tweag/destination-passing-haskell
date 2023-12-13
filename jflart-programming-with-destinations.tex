@@ -238,7 +238,7 @@ The implementation of destination-backed difference lists is presented in Table~
     \mintinline{haskellc}`concat` just writes an address into a memory cell; no move is
     required.
 
-  \item \mintinline{haskellc}`toList` (Figure~\ref{fig:schema-dlist-toList}) completes the incomplete structure by plugging \emph{nil} into its hole with \mintinline{haskellc}`fill @'[]` (whose individual behavior is presented in Figure~\ref{fig:schema-fillNil}) and removes the \mintinline{haskellc}`Incomplete` wrapper which is no longer mandatory as the structure is now complete.
+  \item \mintinline{haskellc}`toList` (Figure~\ref{fig:schema-dlist-toList}) completes the incomplete structure by plugging \emph{nil} into its hole with \mintinline{haskellc}`fill @'[]` (whose individual behavior is presented in Figure~\ref{fig:schema-fillNil}) and removes the \mintinline{haskellc}`Incomplete` wrapper as the structure is now complete, using \mintinline{haskellc}`fromIncomplete_'`.
 \end{itemize}
 
 To use this API safely, it is imperative that values of type \mintinline{haskellc}`Incomplete` are used linearly. Otherwise we could first complete a difference list with \mintinline{haskellc}`l = toList i`, then add a new cons cell with a hole to \mintinline{haskellc}`i` with \mintinline{haskellc}`append i x` (actually reusing the destination inside \mintinline{haskellc}`i` for the second time). Doing that creates a hole inside \mintinline{haskellc}`l`, although it is of type \mintinline{haskellc}`[a]` so we are allowed to pattern-match on it (so we might get a segfault)! The simplified API of Table~\ref{table:impl-dlist} doesn't actually enforce the required linearity properties, I'll address that in Section~\ref{ssec:api-linearity}.
