@@ -685,7 +685,7 @@ The desired outcome is to only allocate a root receiver in the region for actual
   \label{fig:schema-alloc-region}
 \end{figure}
 
-The implementation of \mintinline{haskellc}`fromIncomplete_` is then relatively straightforward. It allocates a hollow \mintinline{haskellc}`¤Ur □` in the region, writes the address of the now complete structure into it, and returns the \mintinline{haskellc}`¤Ur`.
+The implementation of \mintinline{haskellc}`fromIncomplete_` is then relatively straightforward. It allocates a hollow \mintinline{haskellc}`¤Ur □` in the region, writes the address of the complete structure into it, and returns the \mintinline{haskellc}`¤Ur` (an alternative would have been to use a regular \mintinline{haskellc}`¤Ur` allocated in the GC heap).
 
 \subsection{Deriving \texttt{fill} for all constructors with \texttt{Generics}}\label{ssec:impl-generics}
 
