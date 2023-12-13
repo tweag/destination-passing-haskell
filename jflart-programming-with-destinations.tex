@@ -105,7 +105,7 @@ The Haskell programming language is equipped with support for linear types throu
 \paragraph{The main contributions of this paper are}
 \begin{itemize}
 \item A linearly-typed API for destinations that let us build and manipulate data structures with holes while exposing a pure interface (Section~\ref{sec:api})
-\item A first implementation of destinations for Haskell relying on so-called compact regions (Section~\ref{sec:implementation}), together with a performance evaluation (Section~\ref{sec:benchmark}). The whole implementation is available in~\cite{custom_ghc} and~\cite{linear_dest}.
+\item A first implementation of destinations for Haskell relying on so-called compact regions (Section~\ref{sec:implementation}), together with a performance evaluation (Section~\ref{sec:benchmark}). Implementation code is available in~\cite{custom_ghc} and~\cite{linear_dest} (specifically \mintinline{text}`src/Compact/Pure/Internal.hs` and \mintinline{text}`bench/Bench`).
 \end{itemize}
 
 \section{A short primer on linear types}\label{sec:intro-linearity}
