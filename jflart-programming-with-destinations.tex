@@ -754,7 +754,7 @@ hollowJust :: Maybe a = compactAddHollow#
 
 \paragraph{Built-in type family to go from a lifted constructor to the associated symbol}
 
-The internal primop \mintinline{haskellc}`reifyInfoPtr#` that we introduced above takes as input a constructor lifted into a type-level literal, so this is also what \mintinline{haskellc}`fill` will use to know which constructor it should operate with. But \mintinline{haskellc}`DestsOf` have a find the metadata of a constructor in the \mintinline{haskellc}`Generic` representation of a type, in which only the constructor name appears.
+The internal primop \mintinline{haskellc}`reifyInfoPtr#` that we introduced above takes as input a constructor lifted into a type-level literal, so this is also what \mintinline{haskellc}`fill` will use to know which constructor it should operate with. But \mintinline{haskellc}`DestsOf` have to find the metadata of a constructor in the \mintinline{haskellc}`Generic` representation of a type, in which only the constructor name appears.
 
 So we added a new type family \mintinline{haskellc}`LCtorToSymbol` inside GHC that inspects its (type-level) parameter representing a constructor, fetches its associated \mintinline{haskellc}`DataCon` structure, and returns a type-level string (kind \mintinline{haskellc}`Symbol`) carrying the constructor name, as presented in Table~\ref{table:impl-LCtorToSymbol}.
 
