@@ -13,6 +13,7 @@
 %\usepackage[section]{placeins}
 %\addbibresource{bibliography.bib}
 \usepackage{enumitem}
+\usepackage{caption}
 \setlist[itemize]{topsep=0.5ex,itemsep=-0.5ex,partopsep=1ex,parsep=1ex}
 
 % Numéro et année des JFLAs visées par l'article, obligatoire.
@@ -116,7 +117,7 @@ A value is said to be \emph{consumed once} (or \emph{consumed linearly}) when it
 
 \paragraph{Unrestricted values}
 
-Linear Haskell introduces a wrapper named \mintinline{haskellc}`Ur` which is used to indicate that a value in a linear context doesn't have to be consumed linearly. \mintinline{haskellc}`Ur a` is equivalent to $!a$ in linear logic, and there is an equivalence between \mintinline{haskellc}`Ur a ⊸ b` and \mintinline{haskellc}`a → b`.
+Linear Haskell introduces a wrapper named \mintinline{haskellc}`Ur` which is used to indicate that a value in a linear context doesn't have to be used linearly. \mintinline{haskellc}`Ur a` is equivalent to $!a$ in linear logic, and there is an equivalence between \mintinline{haskellc}`Ur a ⊸ b` and \mintinline{haskellc}`a → b`.
 
 The value \mintinline{haskellc}`(x, y)` is said to be consumed linearly only when both \mintinline{haskellc}`x` and \mintinline{haskellc}`y` are consumed exactly once; whereas \mintinline{haskellc}`¤Ur x` is considered to be consumed once as long as one pattern-matches on it, even if \mintinline{haskellc}`x` is not consumed exactly once after (it can be consumed several times or none at all). Conversely, both \mintinline{haskellc}`x` and \mintinline{haskellc}`y` are used linearly in \mintinline{haskellc}`(x, y)`, whereas \mintinline{haskellc}`x` is not used linearly in \mintinline{haskellc}`¤Ur x`. As a result, only types already wrapped in \mintinline{haskellc}`¤Ur` or coming from the left of a non-linear arrow can be put in another \mintinline{haskellc}`¤Ur` without breaking linearity. The only exceptions are types which implement the \mintinline{haskellc}`Movable` typeclass such as \mintinline{haskellc}`Int` or \mintinline{haskellc}`()`. \mintinline{haskellc}`Movable` provides \mintinline{haskellc}`move :: a ⊸ Ur a` so a value can escape linearity restrictions.
 
@@ -135,7 +136,7 @@ Some Haskell operators are often used in the rest of this article:
 
 \section{Motivating examples for DPS programming}\label{sec:motivating-examples}
 
-The following subsections present three typical settings in which DPS programming presents expressiveness or performance benefits over a more traditional functional implementation.
+The following subsections present three typical settings in which DPS programming brings expressiveness or performance benefits over a more traditional functional implementation.
 
 \subsection{Efficient difference lists}\label{ssec:dlist}
 
@@ -143,7 +144,7 @@ Linked lists are a staple of functional programming, but they aren't efficient f
 
 In an imperative context, it would be quite easy to concatenate linked lists efficiently. One just has to keep both a pointer to the root and to the last \emph{cons} cell of each list. Then, to concatenate two lists, one just has to mutate the last \emph{cons} cell of the first one to point to the root of the second list.
 
-It isn't possible to do so in an immutable functional context though. Instead, \emph{difference lists} can be used: they are very fast to concatenate, and then to convert back into a list. They tend to emulate the idea of having a mutable (here, write-once) last \emph{cons} cell. Usually, a difference list \mintinline{haskellc}`x1 : ... : xn : □` is encoded by the function \mintinline{haskellc}`\ys -> x1 : ... : xn : ys` taking a last element \mintinline{haskellc}`ys :: [a]` and returning a value of type \mintinline{haskellc}`[a]` too.
+It isn't possible to do so in an immutable functional context though. Instead, \emph{difference lists} can be used: they are very fast to concatenate, and then to convert back into a list. They tend to emulate the idea of having a mutable (here, write-once) last \emph{cons} cell. Usually, a difference list \mintinline{haskellc}`x1 : ... : xn : □` is encoded by function \mintinline{haskellc}`\ys -> x1 : ... : xn : ys` taking a last element \mintinline{haskellc}`ys :: [a]` and returning a value of type \mintinline{haskellc}`[a]` too.
 
 With such a representation, concatenation is function composition: \mintinline{haskellc}`f1 <> f2 = f1 . f2`, and we have \mintinline{haskellc}`mempty = id`\footnote{\mintinline{haskellc}`mempty` and \mintinline{haskellc}`<>` are the usual notations for neutral element and binary operation of a monoid in Haskell}, \mintinline{haskellc}`toList f = f []` and \mintinline{haskellc}`fromList xs = \ys → xs ++ ys`.
 
@@ -224,7 +225,7 @@ The implementation of destination-backed difference lists is presented in Table~
   \item \mintinline{haskellc}`append` (Figure~\ref{fig:schema-dlist-append}) adds an element at the tail
     position of a difference list. For this, it first uses
     \mintinline{haskellc}`fill @'(:)` to fill the hole at the end of the list represented by
-    \mintinline{haskellc}`d :: Dest [a]` with a new hollow \emph{cons}
+    \mintinline{haskellc}`d :: Dest [a]` with a hollow \emph{cons}
     cell with two new holes pointed by \mintinline{haskellc}`dh :: Dest a` and \mintinline{haskellc}`dt :: Dest [a]`. Then,
     \mintinline{haskellc}`fillLeaf` fills the hole represented by
     \mintinline{haskellc}`dh` with the value
@@ -318,9 +319,9 @@ Instead, we'd rather consider the deserialized payload as a single heap object, 
 
 With compact regions, we would first deserialize the payload normally, in the GC heap, then copy it into a compact region and only keep a reference to the copy. That way, internal pointers of the region copy will never be followed by the GC, and that copy will be collected as a whole later on, whereas the original in the GC heap will be collected immediately.
 
-However, we are still allocating two copies of the deserialized payload. This is wasteful, it would be much better to allocate directly in the region, but this isn't part of the original compact region API. Destinations are one way to accomplish this. In fact, as I'll explain in Section~\ref{sec:implementation}, my current implementation of DPS in Haskell is backed by compact regions because they provide more freedom to do low-level memory operations without interfering with the GC.
+However, we are still allocating two copies of the deserialized payload. This is wasteful, it would be much better to allocate directly in the region, but this isn't part of the original compact region API. Destinations are one way to accomplish this. In fact, as I'll explain in Section~\ref{sec:implementation}, my implementation of DPS for Haskell is backed by compact regions because they provide more freedom to do low-level memory operations without interfering with GC.
 
-Given a payload serialized as S-expressions, let's see how using destinations and compact regions for the parser can lead to greater performance. S-expressions are parenthesized lists whose elements are just separated by spaces. These elements can be of several types: int, string, symbol (a textual token, with no quotes around it, unlike a string), or a list of other S-expressions.
+Given a payload serialized as S-expressions, let's see how using destinations and compact regions for the parser can lead to greater performance. S-expressions are parenthesized lists whose elements are separated by spaces. These elements can be of several types: int, string, symbol (a textual token with no quotes around it), or a list of other S-expressions.
 
 Parsing an S-expression can be done naively with mutually recursive functions:
 \begin{itemize}
@@ -463,7 +464,7 @@ Thanks to that new implementation which is barely longer (in terms of lines of c
 
 \section{API Design}\label{sec:api}
 
-Table~\ref{table:destination-api} presents my pure API for functional DPS programming. This API is sufficient to implement all the examples of Section~\ref{sec:motivating-examples}. The rest of this section explains the various parts of this API.
+Table~\ref{table:destination-api} presents my pure API for functional DPS programming. This API is sufficient to implement all the examples of Section~\ref{sec:motivating-examples}. This section explains its various parts in detail.
 
 \begin{table}[t]
 \small
@@ -511,11 +512,10 @@ Types aren't linear by themselves in Linear Haskell. Instead, functions can be m
 \begin{unbreakable}
 {\small
 \begin{minted}[linenos]{haskellc}
-createR :: () ⊸ Resource    -- no way to indicate that the result must be used once
-consumeR :: Resource ⊸ ()
-
-exampleShouldFail :: () =    -- accepted even though x is consumed twice
-  let x = createR ¤() in consumeR x ; consumeR x
+createR           :: Resource -- no way to force the result to be used exactly once
+consumeR          :: Resource ⊸ ()
+exampleShouldFail :: () =      
+  let x = createR in consumeR x ; consumeR x -- valid even if x is consumed twice
 \end{minted}
 }
 \end{unbreakable}
@@ -525,9 +525,8 @@ The solution is to force the consumer of a resource to become explicit at the cr
 \begin{unbreakable}
 {\small
 \begin{minted}[linenos,escapeinside=°°]{haskellc}
-withR :: (Resource ⊸ a) ⊸ a
-consumeR :: Resource ⊸ ()
-
+withR       :: (Resource ⊸ a) ⊸ a
+consumeR    :: Resource ⊸ ()
 exampleFail :: () = withR (\x → consumeR °\mold{x}° ; consumeR °\mold{x}°) -- not linear
 \end{minted}
 }
@@ -539,9 +538,8 @@ Still, this is not enough; because \mintinline{haskellc}`\x → x` is indeed a l
 \begin{unbreakable}
 {\small
 \begin{minted}[linenos,escapeinside=°°]{haskellc}
-withR' :: (Resource ⊸ Ur a) ⊸ Ur a
-consumeR :: Resource ⊸ ()
-
+withR'       :: (Resource ⊸ Ur a) ⊸ Ur a
+consumeR     :: Resource ⊸ ()
 exampleOk'   :: Ur ()       = withR' (\x → let u :: () = consumeR x' in move u)
 exampleFail' :: Ur Resource = withR' (\x → °\mold{¤Ur x}°) -- not linear
 \end{minted}
@@ -566,9 +564,9 @@ This explicit \emph{scope function} trick will no longer be necessary when linea
 
 \paragraph{Ensuring linear use of \texttt{Incomplete} objects}
 
-If an \mintinline{haskellc}`Incomplete` object is used linearly, then its destinations will be written to exactly once; this is ensured by the signature of \mintinline{haskellc}`fmap` for \mintinline{haskellc}`Incomplete`s. So we need to ensure that \mintinline{haskellc}`Incomplete` objects are used linearly. For that, we introduce a new token type \mintinline{haskellc}`Token`. A token can be linearly exchanged one for one with an \mintinline{haskellc}`Incomplete` of any type through \mintinline{haskellc}`alloc`, and can be linearly duplicated with \mintinline{haskellc}`dup2` or linearly deleted with \mintinline{haskellc}`consume`. However, it cannot be linearly stored in \mintinline{haskellc}`Ur` as it doesn't implement \mintinline{haskellc}`Movable`.
+If an \mintinline{haskellc}`Incomplete` object is used linearly, then its destinations will be written to exactly once; this is ensured by the signature of \mintinline{haskellc}`fmap` for \mintinline{haskellc}`Incomplete`s. So we need to ensure that \mintinline{haskellc}`Incomplete` objects are used linearly. For that, we introduce a new type \mintinline{haskellc}`Token`. A token can be linearly exchanged one-for-one with an \mintinline{haskellc}`Incomplete` of any type with \mintinline{haskellc}`alloc`, linearly duplicated with \mintinline{haskellc}`dup2`, or linearly deleted with \mintinline{haskellc}`consume`. However, it cannot be linearly stored in \mintinline{haskellc}`Ur` as it doesn't implement \mintinline{haskellc}`Movable`.
 
-As in the example above, we just ensure that \mintinline{haskellc}`withToken :: (Token ⊸ Ur a) ⊸ Ur a` is the only source of \mintinline{haskellc}`Token`s around. Now, to produce an \mintinline{haskellc}`Incomplete` with \mintinline{haskellc}`alloc`, one must get a token first, so has to be in the scope of a continuation which is passed to \mintinline{haskellc}`withToken`. Putting either a \mintinline{haskellc}`Token` or \mintinline{haskellc}`Incomplete` in \mintinline{haskellc}`Ur` inside the continuation would then make the continuation non-linear. So none of them can escape the scope as is, but a structure built from an \mintinline{haskellc}`Incomplete` and finalized with \mintinline{haskellc}`fromIncomplete` or \mintinline{haskellc}`fromIncomplete_` would be automatically wrapped in \mintinline{haskellc}`Ur`, thus could safely escape the scope\footnote{This is why the \mintinline{haskellc}`fromIncomplete'` and \mintinline{haskellc}`fromIncomplete_'` variants aren't that useful in the actual memory-safe API (which differs slightly from the simplified examples of Section~\ref{sec:motivating-examples}): here the built structure would be stuck in the scope function without its \mintinline{haskellc}`Ur` escape pass.}.
+As in the example above, we just ensure that \mintinline{haskellc}`withToken :: (Token ⊸ Ur a) ⊸ Ur a` is the only source of \mintinline{haskellc}`Token`s around. Now, to produce an \mintinline{haskellc}`Incomplete`, one must get a token first, so has to be in the scope of a continuation passed to \mintinline{haskellc}`withToken`. Putting either a \mintinline{haskellc}`Token` or \mintinline{haskellc}`Incomplete` in \mintinline{haskellc}`Ur` inside the continuation would make it non-linear. So none of them can escape the scope as is, but a structure built from an \mintinline{haskellc}`Incomplete` and finalized with \mintinline{haskellc}`fromIncomplete` would be automatically wrapped in \mintinline{haskellc}`Ur`, thus could safely escape\footnote{This is why the \mintinline{haskellc}`fromIncomplete'` and \mintinline{haskellc}`fromIncomplete_'` variants aren't that useful in the actual memory-safe API (which differs slightly from the simplified examples of Section~\ref{sec:motivating-examples}): here the built structure would be stuck in the scope function without its \mintinline{haskellc}`Ur` escape pass.}.
 
 \subsection{Filling functions for destinations}
 
@@ -583,7 +581,6 @@ The last part of the API is the one in charge of actually building the structure
 \begin{minted}[linenos,escapeinside=°°]{haskellc}
 parent :: Incomplete BigStruct (Dest SmallStruct, Dest OtherStruct)
 child :: Incomplete SmallStruct (Dest Int)
-
 comp = parent <&> \(ds, extra) → fillComp child ds
        :: Incomplete BigStruct (Dest Int, Dest OtherStruct)
 \end{minted}
@@ -661,6 +658,13 @@ fillLeaf :: ∀ r a.       Region r ⇒ a → Dest r a ⊸ ()
 \end{minted}
 \caption{Destination API using compact regions}
 \label{table:destination-api-regions}
+
+\medskip
+
+\centering
+  \includegraphics[width=12cm]{alloc-region.png}
+  \captionof{figure}{Memory behaviour of \mintinline{haskellc}`alloc` and \mintinline{haskellc}`intoIncomplete` in the region implementation}
+  \label{fig:schema-alloc-region}
 \end{table}
 
 \subsection{Representation of \texttt{Incomplete} objects}
@@ -678,12 +682,6 @@ The desired outcome is to only allocate a root receiver in the region for actual
   \item in the pair \mintinline{haskellc}`(a, b)` returned by \mintinline{haskellc}`alloc`, the \mintinline{haskellc}`a` side points to an indirection object (a sort of constructor with one field, whose resulting type \mintinline{haskellc}`a` is the same as the field type \mintinline{haskellc}`a`), that is allocated in the region, and serves as the root receiver;
   \item in the pair \mintinline{haskellc}`(a, b)` returned by \mintinline{haskellc}`intoIncomplete`, the \mintinline{haskellc}`a` side directly points to the object of type \mintinline{haskellc}`a` that has been copied to the region.
 \end{itemize}
-
-\begin{figure}[t]\centering
-  \includegraphics[width=12cm]{alloc-region.png}
-  \caption{Memory behaviour of \mintinline{haskellc}`alloc` and \mintinline{haskellc}`intoIncomplete` in the region implementation}
-  \label{fig:schema-alloc-region}
-\end{figure}
 
 The implementation of \mintinline{haskellc}`fromIncomplete_` is then relatively straightforward. It allocates a hollow \mintinline{haskellc}`¤Ur □` in the region, writes the address of the complete structure into it, and returns the \mintinline{haskellc}`¤Ur` (an alternative would have been to use a regular \mintinline{haskellc}`¤Ur` allocated in the GC heap).
 
@@ -720,7 +718,7 @@ The info table is what defines both the layout and behavior of a heap object. Al
 
 The RTS is in fact a static piece of code that is compiled once when GHC is built. So the RTS has no direct way to access the information emitted during the compilation of a program. In other words, when the RTS runs, it has no way to inspect the program that it runs and info table labels have long been replaced by actual pointers so it cannot find them itself. But it is the one which knows how to allocate space inside a compact region.
 
-As a result, I've needed to extend GHC with two primitives to be able allocate a hollow constructor heap object:
+As a result, I need to add two new primitives to GHC to allocate a hollow constructor:
 
 \begin{itemize}
 \item one \emph{external primop} to allocate space inside a compact region for a hollow constructor. This primop has to be implemented inside the RTS for the aforementioned reasons;
@@ -750,6 +748,7 @@ hollowJust :: Maybe a = compactAddHollow#
   compactRegion#
   (unsafeCoerceAddr (reifyInfoPtr# (# #) :: InfoPtrPlaceholder# 'Just ))
 \end{minted}
+\vspace{-0.8\baselineskip}
 }
 \end{unbreakable}
 
@@ -901,7 +900,7 @@ However, in Minamide's work, there is no concept of destination: the hole in a s
 
 More recently, \cite{protzenko_mezzo_2013} introduced the Mezzo programming language, in which mutable data structures can be freezed into immutable ones after having been completed. This principle is used to some extend in their list standard library module, to mimic a form of DPS programming. An earlier appearance of DPS programming as a mean to achieve better performance in a mutable language can also be seen in~\cite{larus_restructuring_1989}.
 
-Finally, both \cite{shaikhha_destination-passing_2017} and \cite{bour_tmc_2021} use DPS programming to make list or array processing algorithms more efficient in a functional, immutable context, by turning non tail-recursive functions into tail-recursive DPS ones. More importantly, they present an automatized way to go from a naive program to its tail-recursive version. However, holes/destinations are only supported at an intermediary language level in those papers, while both~\cite{minamide_functional_1998} and our present work support safe DPS programming in user-land. In a slightly broader context, \cite{lorenzen_fp_2023} presents a system in which linearity is used to identify where destructive updates can be made, so as to reuse the same constructor object instead of deallocating and reallocating one -- but this optimization technique is still mostly invisible for the user, unlike ours which is made explicit.
+Finally, both \cite{shaikhha_destination-passing_2017} and \cite{bour_tmc_2021} use DPS programming to make list or array processing algorithms more efficient in a functional, immutable context, by turning non tail-recursive functions into tail-recursive DPS ones. More importantly, they present an automatized way to go from a naive program to its tail-recursive version. However, holes/destinations are only supported at an intermediary language level in those papers, while both~\cite{minamide_functional_1998} and our present work support safe DPS programming in user-land. In a slightly broader context, \cite{lorenzen_fp_2023} presents a system in which linearity is used to identify where destructive updates can be made, so as to reuse the same constructor object instead of deallocating and reallocating one; but this optimization technique is still mostly invisible for the user, unlike ours which is made explicit.
 
 \section{Conclusion and future work}
 
