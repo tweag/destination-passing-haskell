@@ -50,7 +50,7 @@ clean:
 jflart-programming-with-destinations.tar.gz: jflart-programming-with-destinations.tex jflart-programming-with-destinations.bbl jflart.cls
 	tar -cvzf $@ $^
 
-%.pdf %.bbl : %.tex bibliography.bib pygmentize_local hc.py jflart.cls
+%.pdf %.bbl : %.tex bibliography.bib pygmentize_local hc.py jflart.cls *.tikz *.sty *.tikzstyles
 	cd $(dir $<) && latexmk $(notdir $*)
 
 nix::

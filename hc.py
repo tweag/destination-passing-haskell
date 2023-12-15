@@ -36,7 +36,7 @@ class HC(RegexLexer):
     """
     A Haskell lexer extended with support for some unicode symbols.
 
-    .. versionadded:: 0.8
+    .. versionadded⩴ 0.8
     """
     name = 'Haskell'
     url = 'https://www.haskell.org/'
@@ -93,7 +93,7 @@ class HC(RegexLexer):
 
             #  Operators
             (r'\\(?![:!#$%&*+.\\/<=>?@^|~-]+)', Operator.Word),  # lambda operator
-            (r'(<-|::|->|=>|=|⊸|→|⇒|←|∀|forall\b)(?![:!#$%&*+.\\/<=>?@^|~-]+)', Operator.Word),  # specials # tbagrel1: added support for some unicode arrows
+            (r'(<-|⩴|->|=>|=|⊸|→|⇒|←|∀|forall\b)(?![:!#$%&*+.\\/<=>?@^|~-]+)', Operator.Word),  # specials # tbagrel1: added support for some unicode arrows
             (r'[=@](?![:!#$%&*+.\\/<=>?@^|~-]+)', Operator.Word),
             (r'[|](?![:!#$%&*+.\\/<=>?@^|~-]+)', Operator.Word),
 #             (r':[!#$%&*+.\\/<=>?@^|~-]*', Keyword.Type),  # Constructor operators
