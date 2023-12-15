@@ -93,7 +93,7 @@ Destination-passing style programming introduces destinations, which represent t
 
 Programming with destination in Haskell is an interesting way to improve performance of critical parts of some programs, without sacrificing memory guarantees. Indeed, thanks to a linearly-typed API I present, a write-once memory cell cannot be left uninitialized before being read, and is still disposed of by the garbage collector when it is not in use anymore, eliminating the risk of uninitialized read, memory leak, or double-free errors that can arise when memory is managed manually.
 
-In this article, I present an implementation of destinations for Haskell, which relies on so-called compact regions. I demonstrate, in particular, a simple parser example for which the destination-based version uses 10\% less memory and takes only 60\% of the time of its naive counterpart.
+In this article, I present an implementation of destinations for Haskell, which relies on so-called compact regions. I demonstrate, in particular, a simple parser example for which the destination-based version uses 35\% less memory and time than its naive counterpart for large inputs.
 \end{abstract}
 
 %\tableofcontents{}
@@ -842,27 +842,19 @@ All over this article, we talked about programs in both naive style and DPS styl
 
 For naive versions, we have a choice to make on how to fully evaluate the result: either force each chunk of the result inside the GC heap (using \mintinline{haskellc}`Control.DeepSeq.force`), or copy the result in a compact region that is strict by default (using \mintinline{haskellc}`Data.Compact.compact`).
 
-For programs which don't incur an easily avoidable load on the GC, having the result of the function copied into a compact region isn't particularly desirable and will generally inflate memory allocations. So we use \mintinline{haskellc}`force` to benchmark the naive version of those programs (the associated benchmark names are denoted with a ``*'' suffix).
-
-All implementations are benchmarked against structures of size $2^{10}$, $2^{13}$, $2^{16}$ and $2^{19}$.
+In programs where there is no particular long-lived piece of data, having the result of the function copied into a compact region isn't particularly desirable since it will generally inflate memory allocations. So we use \mintinline{haskellc}`force` to benchmark the naive version of those programs (the associated benchmark names are denoted with a ``*'' suffix).
 
 \begin{figure}[t]\centering
   \hspace*{-1.5cm}\includegraphics[width=16.8cm]{bench-charts.pdf}
-  \caption{Benchmarks ran on AMD EPYC 7401P @ 2.0 GHz (single core, \texttt{-N1 -O2})}
+  \caption{Benchmarks performed on AMD EPYC 7401P @ 2.0 GHz (single core, \texttt{-N1 -O2})}
   \label{fig:bench-charts}
 \end{figure}
 
 \paragraph{Concatenating lists and difference lists}
 
-We compared four implementations.
+We compared three implementations. \\\mintinline{haskellc}`foldr (++)`* has calls to \mintinline{haskellc}`(++)` nested to the right, giving the most optimal context for list concatenation (it should run in $\mathcal{O}(n)$ time). \mintinline[escapeinside=°°]{haskellc}`foldl' concat°$\lambda$°`* uses function-backed difference lists, and \mintinline{haskellc}`foldl' concatDPS` uses destin\-ation-backed ones, so both should run in $\mathcal{O}(n)$ even if calls to concat are nested to the left.
 
-\mintinline{haskellc}`foldr (++)` has calls to \mintinline{haskellc}`(++)` nested to the right, giving the most optimal context for list concatenation (it should run in $\mathcal{O}(n)$ time).
-
-\mintinline{haskellc}`foldl' (++)` is the worst case for list concatenation, expected to run in $\mathcal{O}(n^2)$ time.
-
-\mintinline[escapeinside=°°]{haskellc}`foldl' concat°$\lambda$°` uses function-backed difference lists, and \mintinline{haskellc}`foldl' concatDPS` uses destin\-ation-backed ones; both should run in $\mathcal{O}(n)$ even if calls to concat are nested to the left.
-
-We see in part \textbf{A} of Figure~\ref{fig:bench-charts} that the destination-backed difference lists have a comparable memory use as the two other linear implementations, and a very slight edge for large data sets (5-10\% fewer allocations), in exchange for being quite slower (2-4$\times$ time).
+We see in part \textbf{A} of Figure~\ref{fig:bench-charts} that the destination-backed difference lists have a comparable memory use as the two other linear implementations, while being quite slower (by a factor 2-4) on all datasets. We expect better results though for the DPS implementation in a language where lazy closures would not be as optimized as in Haskell.
 
 \paragraph{Breadth-first relabeling}\label{par:benchmark-bf-tree-traversal}
 
@@ -870,13 +862,13 @@ We see in part \textbf{B} of Figure~\ref{fig:bench-charts} that the destination-
 
 \paragraph{Parsing S-expressions}
 
-In part \textbf{C} of Figure~\ref{fig:bench-charts}, we compare the naive implementation of the S-expression parser and the DPS one (see~\ref{ssec:parser-sexpr}). For this particular program, where compact regions might reduce the GC load even in the naive case, it is relevant to benchmark the naive version twice: once with \mintinline{haskellc}`force` and once with \mintinline{haskellc}`compact`.
+In part \textbf{C} of Figure~\ref{fig:bench-charts}, we compare the naive implementation of the S-expression parser and the DPS one (see~\ref{ssec:parser-sexpr}). For this particular program, where using compact regions might reduce the future GC load of the application, it is relevant to benchmark the naive version twice: once with \mintinline{haskellc}`force` and once with \mintinline{haskellc}`compact`.
 
-It is interesting to see that the DPS version makes about 50\% more allocations than the starred naive version, but uses 10\% less memory at its peak (not shown in the figure), and more importantly, spends 38$\times$ less time in garbage collection (with 6$\times$ less bytes copied by the GC). As a result, the DPS version only takes 0.55-0.65$\times$ the time spent by the naive versions, thanks to garbage collection savings. This also indicates that most of the data allocated in the garbage-collected heap by the DPS version just lasts one generation and thus can be discarded very early by the GC, without needing to be copied into the next generation, unlike most nodes allocated by the naive versions.
+The DPS version starts by being less efficient than the naive versions for small inputs, but gets an edge as soon as garbage collection kicks in (on datasets of size $\leq 2^{16}$, no garbage collection cycle is required as the heap size stays small).
 
-We can also observe that copying the result of the naive version in a compact region (which is desirable for future GC savings, as detailed in Subsection~\ref{ssec:parser-sexpr}) takes even more time than using \mintinline{haskellc}`force`, and results in even more total allocations than the DPS version.
+On the largest dataset ($2^{22} \simeq 4$MiB file), the DPS version still makes about 45\% more allocations than the starred naive version, but uses 35\% less memory at its peak, and more importantly, spends 47$\times$ less time in garbage collection. As a result, the DPS version only takes 0.55-0.65$\times$ the time spent by the naive versions, thanks to garbage collection savings. All of this also indicates that most of the data allocated in the GC heap by the DPS version just lasts one generation and thus can be discarded very early by the GC, without needing to be copied into the next generation, unlike most nodes allocated by the naive versions.
 
-This benchmark is the most significant of the paper and proves that DPS is a viable technique that brings real performance improvements in at least one common use-case.
+We can also observe that copying the result of the naive version in a compact region (which might be desirable for future GC savings, as detailed in Subsection~\ref{ssec:parser-sexpr}) incurs a real time and memory penalty, that the DPS version offers to avoid.
 
 % \subsection{Mapping a function over a list}\label{ssec:benchmark-map}
 
