@@ -193,25 +193,25 @@ The implementation of destination-backed difference lists is presented in Table~
 
 \begin{figure}[p]\centering
   \hspace{-0.5cm}\begin{minipage}{0.3\textwidth}
-    \scalebox{\figscale}{\tikzfig{alloc}}
+    \scalebox{\figscale}{\tikzfig{schemas/alloc}}
     \caption{\mintinline{haskellc}`alloc`}
     \label{fig:schema-alloc}
   \end{minipage}\hspace{0cm}%
   \begin{minipage}{0.7\textwidth}
-    \scalebox{\figscale}{\tikzfig{dlist-toList}}
+    \scalebox{\figscale}{\tikzfig{schemas/dlist-toList}}
     \caption{Memory behavior of \mintinline{haskellc}`toList i`}
     \label{fig:schema-dlist-toList}
   \end{minipage}
 \end{figure}
 
 \begin{figure}[p]\centering
-  \scalebox{\figscale}{\tikzfig{dlist-append}}
+  \scalebox{\figscale}{\tikzfig{schemas/dlist-append}}
   \caption{Memory behavior of \mintinline{haskellc}`append alloc 1`}
   \label{fig:schema-dlist-append}
 \end{figure}
 
 \begin{figure}[p]\centering
-  \scalebox{\figscale}{\tikzfig{dlist-concat}}
+  \scalebox{\figscale}{\tikzfig{schemas/dlist-concat}}
   \caption{Memory behavior of \mintinline{haskellc}`concat i1 i2` (based on \mintinline{haskellc}`fillComp`)}
   \label{fig:schema-dlist-concat}
 \end{figure}
@@ -612,15 +612,15 @@ The resulting structure \mintinline{haskellc}`comp` is morally a \mintinline{has
 \end{unbreakable}
 
 \begin{figure}[t]\centering
-  \scalebox{\figscale}{\tikzfig{fillCons}}
+  \scalebox{\figscale}{\tikzfig{schemas/fillCons}}
   \caption{Memory behavior of \mintinline{haskellc}`fill @'(:) ⩴ Dest [a] ⊸ (Dest a, Dest [a])`}
   \label{fig:schema-fillCons}
 
-  \scalebox{\figscale}{\tikzfig{fillNil}}
+  \scalebox{\figscale}{\tikzfig{schemas/fillNil}}
   \caption{Memory behavior of \mintinline{haskellc}`fill @'[] ⩴ Dest [a] ⊸ ()`}
   \label{fig:schema-fillNil}
 
-  \scalebox{\figscale}{\tikzfig{fillLeaf}}
+  \scalebox{\figscale}{\tikzfig{schemas/fillLeaf}}
   \caption{Memory behavior of \mintinline{haskellc}`fillLeaf ⩴ a → Dest [a] ⊸ ()`}
   \label{fig:schema-fillLeaf}
 \end{figure}
@@ -669,7 +669,7 @@ fillLeaf ⩴ ∀ r a.       Region r ⇒ a → Dest r a ⊸ ()
 \medskip
 
 \centering
-  \scalebox{\figscale}{\tikzfig{alloc-region}}
+  \scalebox{\figscale}{\tikzfig{schemas/alloc-region}}
   \captionof{figure}{Memory behaviour of \mintinline{haskellc}`alloc` and \mintinline{haskellc}`intoIncomplete` in the region implementation}
   \label{fig:schema-alloc-region}
 \end{table}

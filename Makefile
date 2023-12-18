@@ -50,14 +50,14 @@ clean:
 jflart-programming-with-destinations.tar.gz: jflart-programming-with-destinations.tex jflart-programming-with-destinations.bbl jflart.cls
 	tar -cvzf $@ $^
 
-%.pdf %.bbl : %.tex bibliography.bib pygmentize_local hc.py jflart.cls *.tikz *.sty *.tikzstyles bench-charts.pdf
+%.pdf %.bbl : %.tex bibliography.bib pygmentize_local hc.py jflart.cls schemas/*.tikz *.sty *.tikzstyles bench-charts.pdf
 	cd $(dir $<) && latexmk $(notdir $*)
 
 nix::
 	nix-shell --pure --run make
 
 continuous::
-	ls jflart-programming-with-destinations.tex bibliography.bib | entr make
+	ls jflart-programming-with-destinations.tex bibliography.bib pygmentize_local hc.py jflart.cls schemas/*.tikz *.sty *.tikzstyles bench-charts.pdf | entr make
 
 continuous-nix:: nix
 	nix-shell --pure --run "make continuous"
