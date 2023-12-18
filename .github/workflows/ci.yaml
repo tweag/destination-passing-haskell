@@ -18,6 +18,6 @@ jobs:
     - name: Upload PDF
       uses: actions/upload-artifact@v3
       with:
-        name: jflart-programming-with-destinations
-        path: jflart-programming-with-destinations.pdf
+        name: destination-passing-haskell
+        path: destination-passing-haskell.pdf
         retention-days: 60

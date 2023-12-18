@@ -210,7 +210,59 @@ anchor=swh:1:rev:184f838b352a0d546e574bdeb83c8c190e9dfdc2}}",
 @misc{linear_dest,
   title        = "\texttt{linear-dest}, a {Haskell} library that adds supports for {DPS} programming",
   author       = "{Bagrel, Thomas}",
-  howpublished = "Software Heritage,\\ \href{https://archive.softwareheritage.org/swh:1:dir:064422f5515e7b5b7d5099018db092a5c0b2549f;origin=https://github.com/tweag/linear-dest;visit=swh:1:snp:51c644d4d58dcd17794bc9cd1cd709668abacb14;anchor=swh:1:rev:5f887841fe464f05ad257e282ac27e79a3e19fdc}{\texttt{swh:1:dir:064422f5515e7b5b7d5099018db092a5c0b2549f;\\origin=https://github.com/tweag/linear-dest;\\visit=swh:1:snp:51c644d4d58dcd17794bc9cd1cd709668abacb14;\\anchor=swh:1:rev:5f887841fe464f05ad257e282ac27e79a3e19fdc}}",
+  howpublished = "Software Heritage,\\ \href{https://archive.softwareheritage.org/swh:1:rev:0e7db2e6b24aad348837ac78d8137712c1d8d12a;origin=https://github.com/tweag/linear-dest;visit=swh:1:snp:c0eb2661963bb176204b46788f4edd26f72ac83c}{\texttt{swh:1:rev:0e7db2e6b24aad348837ac78d8137712c1d8d12a;\\origin=https://github.com/tweag/linear-dest;\\visit=swh:1:snp:c0eb2661963bb176204b46788f4edd26f72ac83c}}",
   year         = 2023,
   note         = "\\Accessed: 2023-10-19"
+}
+
+@inproceedings{launchbury_lazy_1994,
+	address = {New York, NY, USA},
+	series = {{PLDI} '94},
+	title = {Lazy functional state threads},
+	isbn = {978-0-89791-662-2},
+	url = {https://dl.acm.org/doi/10.1145/178243.178246},
+	doi = {10.1145/178243.178246},
+	abstract = {Some algorithms make critical internal use of updatable state, even though their external specification is purely functional. Based on earlier work on monads, we present a way of securely encapsulating stateful computations that manipulate multiple, named, mutable objects, in the context of a non-strict, purely-functional language. The security of the encapsulation is assured by the type system, using parametricity. Intriguingly, this parametricity requires the provision of a (single) constant with a rank-2 polymorphic type.},
+	urldate = {2023-12-11},
+	booktitle = {Proceedings of the {ACM} {SIGPLAN} 1994 conference on {Programming} language design and implementation},
+	publisher = {Association for Computing Machinery},
+	author = {Launchbury, John and Peyton Jones, Simon L.},
+	month = jun,
+	year = {1994},
+	pages = {24--35}
+}
+
+
+@article{lorenzen_fp_2023,
+	title = {{FP}$^2$: {Fully} in-{Place} {Functional} {Programming}},
+	volume = {7},
+	issn = {2475-1421},
+	shorttitle = {{FP}$^2$},
+	url = {https://dl.acm.org/doi/10.1145/3607840},
+	doi = {10.1145/3607840},
+	abstract = {As functional programmers we always face a dilemma: should we write purely  
+functional code, or sacrifice purity for efficiency and resort to in-place  
+updates? This paper identifies precisely when we can have the best of both  
+worlds: a wide class of purely functional programs can be executed safely using  
+in-place updates without requiring allocation, provided their arguments are not  
+shared elsewhere.
+            We describe a linear \_fully in-place\_ (FIP) calculus where we prove that we can  
+always execute such functions in a way that requires no (de)allocation and uses  
+constant stack space. Of course, such a calculus is only relevant if we can  
+express interesting algorithms; we provide numerous examples of in-place  
+functions on datastructures such as splay trees or finger trees, together with  
+in-place versions of merge sort and quick sort.
+            We also show how we can generically derive a map function over \_any\_ polynomial  
+data type that is fully in-place. Finally, we have implemented the rules of the  
+FIP calculus in the Koka language. Using the Perceus reference counting garbage  
+collection, this implementation dynamically executes FIP functions in-place  
+whenever possible.},
+	language = {en},
+	number = {ICFP},
+	urldate = {2023-12-11},
+	journal = {Proceedings of the ACM on Programming Languages},
+	author = {Lorenzen, Anton and Leijen, Daan and Swierstra, Wouter},
+	month = aug,
+	year = {2023},
+	pages = {275--304},
 }
