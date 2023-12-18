@@ -1,5 +1,6 @@
 .direnv
 destination-passing-haskell.pdf
+destination-passing-haskell.tar.gz
 
 # Created by https://www.toptal.com/developers/gitignore/api/latex,linux
 # Edit at https://www.toptal.com/developers/gitignore?templates=latex,linux
