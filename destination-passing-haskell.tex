@@ -40,6 +40,17 @@
 \affil[1]{INRIA/LORIA, Vand\oe{}uvre-lès-Nancy, 54500, France}
 \affil[1]{Tweag, Paris, 75012, France}
 
+\makeatletter
+\hypersetup{
+  pdftitle={\@title},%
+  pdfauthor={Thomas Bagrel <thomas.bagrel@tweag.io>},%
+  pdfsubject={Computer Science - Programming Languages},%
+  pdfproducer={pdfTeX},%
+  pdfcreator={Thomas Bagrel <thomas.bagrel@tweag.io>},%
+  pdfkeywords={Linear Types, Haskell, Destinations, DPS, GHC}
+}
+\makeatother
+
 % Une commande définie par l'utilisateur
 \newcommand{\cmd}[1]{\texttt{\textbackslash {#1}}}
 \newcommand{\mpar}{\text{\,\textramshorns\,}}
@@ -106,9 +117,9 @@ DPS programming is an adaptation of this idea for functional languages, based on
 
 That being said, DPS programming is not about giving unlimited manual control over memory or using mutations without restrictions. The existence of a destination is directly linked to the existence of an accompanying hole: we say that a destination is \emph{consumed} when it has already been used to write something in its associated hole. It must not be reused after that point, to ensure immutability and prevent a range of memory errors.
 
-In this paper, I design a destination API whose memory safety (write-once model) is ensured through a linear type discipline. Linear types systems are based on Girard's Linear logic~\cite{girard_linear_1995}, and introduce the concept of \emph{linearity}: one can express through types that a function will \emph{consume} its argument exactly once given the function result is \emph{consumed} exactly once. Linearity helps to manage resources --- such as destinations --- that one should not forget to \emph{consume} (e.g. forgetting to fill a hole before reading a structure), but also that shouldn't be reused several times.
+In this paper, I design a destination API whose memory safety (write-once model) is ensured through a linear type discipline. Linear type systems are based on Girard's Linear logic~\cite{girard_linear_1995}, and introduce the concept of \emph{linearity}: one can express through types that a function will \emph{consume} its argument exactly once given the function result is \emph{consumed} exactly once. Linearity helps to manage resources --- such as destinations --- that one should not forget to \emph{consume} (e.g. forgetting to fill a hole before reading a structure), but also that shouldn't be reused several times.
 
-The Haskell programming language is equipped with support for linear types through its main compiler, \emph{GHC}, since version 9.0.1~\cite{bernardy_linear_2018}. But Haskell is also a \emph{pure} functional language, which means that side effects are only safe to produce inside monadic functions. This led me to set a slightly more refined goal: I wanted to hide impure memory effects related to destinations behind a \emph{pure} Haskell API, and make the whole safe through the linear type discipline. Although the proofs of type safety haven't been made yet, the early practical results seem to indicate that my API is safe, and its purity makes it more convenient to adopt DPS in a codebase compared to a monadic approach that would be more ``contaminating''.
+The Haskell programming language is equipped with support for linear types through its main compiler, \emph{GHC}, since version 9.0.1~\cite{bernardy_linear_2018}. But Haskell is also a \emph{pure} functional language, which means that side effects are usually not safe to produce outside of monadic contexts. This led me to set a slightly more refined goal: I wanted to hide impure memory effects related to destinations behind a \emph{pure} Haskell API, and make the whole safe through the linear type discipline. Although the proofs of type safety haven't been made yet, the early practical results seem to indicate that my API is safe, and its purity makes it more convenient to adopt DPS in a codebase compared to a monadic approach that would be more ``contaminating''.
 
 \paragraph{The main contributions of this paper are}
 \begin{itemize}
@@ -126,7 +137,7 @@ A value is said to be \emph{consumed once} (or \emph{consumed linearly}) when it
 
 Linear Haskell introduces a wrapper named \mintinline{haskellc}`Ur` which is used to indicate that a value in a linear context doesn't have to be used linearly. \mintinline{haskellc}`Ur a` is equivalent to $!a$ in linear logic, and there is an equivalence between \mintinline{haskellc}`Ur a ⊸ b` and \mintinline{haskellc}`a → b`.
 
-The value \mintinline{haskellc}`(x, y)` is said to be consumed linearly only when both \mintinline{haskellc}`x` and \mintinline{haskellc}`y` are consumed exactly once; whereas \mintinline{haskellc}`¤Ur x` is considered to be consumed once as long as one pattern-matches on it, even if \mintinline{haskellc}`x` is not consumed exactly once after (it can be consumed several times or not at all). Conversely, both \mintinline{haskellc}`x` and \mintinline{haskellc}`y` are used linearly in \mintinline{haskellc}`(x, y)`, whereas \mintinline{haskellc}`x` is not used linearly in \mintinline{haskellc}`¤Ur x`. As a result, only values already wrapped in \mintinline{haskellc}`¤Ur` or coming from the left of a non-linear arrow can be put in another \mintinline{haskellc}`¤Ur` without breaking linearity. The only exceptions are types which implement the \mintinline{haskellc}`Movable` typeclass such as \mintinline{haskellc}`Int` or \mintinline{haskellc}`()`. \mintinline{haskellc}`Movable` provides \mintinline{haskellc}`move ⩴ a ⊸ Ur a` so a value can escape linearity restrictions.
+The value \mintinline{haskellc}`(x, y)` is said to be consumed linearly only when both \mintinline{haskellc}`x` and \mintinline{haskellc}`y` are consumed exactly once; whereas \mintinline{haskellc}`¤Ur x` is considered to be consumed once as long as one pattern-matches on it, even if \mintinline{haskellc}`x` is not consumed exactly once after (it can be consumed several times or not at all). Conversely, both \mintinline{haskellc}`x` and \mintinline{haskellc}`y` are used linearly in \mintinline{haskellc}`(x, y)`, whereas \mintinline{haskellc}`x` is not used linearly in \mintinline{haskellc}`¤Ur x`. As a result, only values already wrapped in \mintinline{haskellc}`¤Ur` or coming from the left of a non-linear arrow can be put in another \mintinline{haskellc}`¤Ur` without breaking linearity. The only exceptions are values of types that implement the \mintinline{haskellc}`Movable` typeclass such as \mintinline{haskellc}`Int` or \mintinline{haskellc}`()`. \mintinline{haskellc}`Movable` provides \mintinline{haskellc}`move ⩴ a ⊸ Ur a` so a value can escape linearity restrictions.
 
 % Arnaud: this sentence sounds premature to me
 % Destinations are represented by the type \mintinline{haskellc}`Dest a`, where \mintinline{haskellc}`a` stands for the type of the associated hole. \mintinline{haskellc}`Dest`s are meant to be managed linearly, so don't implement \mintinline{haskellc}`Movable`.
@@ -153,7 +164,7 @@ In an imperative context, it would be quite easy to concatenate linked lists eff
 
 It isn't possible to do so in an immutable functional context though. Instead, \emph{difference lists} can be used: they are very fast to concatenate, and then to convert back into a list. They tend to emulate the idea of having a mutable (here, write-once) last \emph{cons} cell. Usually, a difference list \mintinline{haskellc}`x1 : ... : xn : □` is encoded by function \mintinline{haskellc}`\ys -> x1 : ... : xn : ys` taking a last element \mintinline{haskellc}`ys ⩴ [a]` and returning a value of type \mintinline{haskellc}`[a]` too.
 
-With such a representation, concatenation is function composition: \mintinline{haskellc}`f1 <> f2 = f1 . f2`, and we have \mintinline{haskellc}`mempty = id`\footnote{\mintinline{haskellc}`mempty` and \mintinline{haskellc}`<>` are the usual notations for neutral element and binary operation of a monoid in Haskell}, \mintinline{haskellc}`toList f = f []` and \mintinline{haskellc}`fromList xs = \ys → xs ++ ys`.
+With such a representation, concatenation is function composition: \mintinline{haskellc}`f1 <> f2 = f1 . f2`, and we have \mintinline{haskellc}`mempty = id`\footnote{\mintinline{haskellc}`mempty` and \mintinline{haskellc}`<>` are the usual notations for neutral element and binary operation of a monoid in Haskell.}, \mintinline{haskellc}`toList f = f []` and \mintinline{haskellc}`fromList xs = \ys → xs ++ ys`.
 
 In DPS, instead of encoding the concept of a write-once hole with a function, we can represent the hole of type \mintinline{haskellc}`[a]` as a first-class object with a \emph{destination} of type \mintinline{haskellc}`Dest [a]`. A difference list now becomes an actual data structure in memory --- not just a pending computation --- that has two handles: one to the root of the list of type \mintinline{haskellc}`[a]`, and one to the yet-to-be-filled hole in the last cons cell, represented by the destination of type \mintinline{haskellc}`Dest [a]`.
 
@@ -508,7 +519,7 @@ Hence we introduce a new data type \mintinline{haskellc}`Incomplete a b` where \
 
 It can be released in two ways: with \mintinline{haskellc}`fromIncomplete_`, the value on the \mintinline{haskellc}`b` side must be unit (\mintinline{haskellc}`()`), and just the complete \mintinline{haskellc}`a` is returned, wrapped in \mintinline{haskellc}`Ur`. With \mintinline{haskellc}`fromIncomplete`, the type on the \mintinline{haskellc}`b` side must be of the form \mintinline{haskellc}`Ur c`, and then a pair \mintinline{haskellc}`Ur (a, c)` is returned.
 
-In fact, it is safe to put the resulting value in \mintinline{haskellc}`Ur` because the leaves of the structure that has been built either come from non-linear sources (as \mintinline{haskellc}`fillLeaf ⩴ a → Dest a ⊸ ()` consumes its first argument non-linearly) or are made of 0-ary constructors added with \mintinline{haskellc}`fill`, so the whole structure can safely be used in a non-linear fashion. Variants \mintinline{haskellc}`fromIncomplete_'` and \mintinline{haskellc}`fromIncomplete'` from the beginning of this article just drop the \mintinline{haskellc}`Ur` wrapper.
+It is actually safe to wrap the structure that has been built in \mintinline{haskellc}`Ur` because its leaves either come from non-linear sources (as \mintinline{haskellc}`fillLeaf ⩴ a → Dest a ⊸ ()` consumes its first argument non-linearly) or are made of 0-ary constructors added with \mintinline{haskellc}`fill`, both of which can be used in an unrestricted fashion safely. Variants \mintinline{haskellc}`fromIncomplete_'` and \mintinline{haskellc}`fromIncomplete'` from the beginning of this article just drop the \mintinline{haskellc}`Ur` wrapper.
 
 Conversely, the function \mintinline{haskellc}`intoIncomplete` takes a non-linear argument of type \mintinline{haskellc}`a` and wraps it into an \mintinline{haskellc}`Incomplete` with no destinations left to be consumed.
 
@@ -627,7 +638,7 @@ The resulting structure \mintinline{haskellc}`comp` is morally a \mintinline{has
 
 \section{Implementing destinations in Haskell}\label{sec:implementation}
 
-Having incomplete memory structures in the memory inherently introduces a lot of tension with both the garbage collector and compiler. Indeed, the GC assumes that every heap object it traverses is well-formed, whereas incomplete structures are absolutely ill-formed: they contain uninitialized pointers, which the GC should absolutely not follow.
+Having incomplete structures in the memory inherently introduces a lot of tension with both the garbage collector and compiler. Indeed, the GC assumes that every heap object it traverses is well-formed, whereas incomplete structures are absolutely ill-formed: they contain uninitialized pointers, which the GC should absolutely not follow.
 
 The tension with the compiler is of lesser extent. The compiler can make some optimizations because it assumes that every object is immutable, while DPS programming breaks that guarantee by mutating constructors after they have been allocated (albeit only one update can happen). Fortunately, these errors are easily detected when implementing the API, and fixed by asking GHC not to inline specific parts of the code (with pragmas).
 
@@ -640,7 +651,7 @@ By using compact regions to implement DPS programming, we completely elude the c
 
 Secondly, data in a region cannot contain pointers to the garbage-collected heap, or pointers to other regions: it must be self-contained. That forces us to slightly modify the API, to add a phantom type parameter \mintinline{haskellc}`r` which tags each object with the identifier of the region it belongs to. There are two related consequences: \mintinline{haskellc}`fillLeaf` has to copy each \emph{leaf} value from the garbage-collected heap into the region in which it will be used as a leaf; and \mintinline{haskellc}`fillComp` can only plug together two \mintinline{haskellc}`Incomplete`s that come from the same region.
 
-A typeclass \mintinline{haskellc}`Region r` is also needed to carry around the details about a region that are needed for the implementation. This typeclass has a single method \mintinline{haskellc}`reflect`, not available to the user, that returns the \mintinline{haskellc}`RegionInfo` structure associated to identifier \mintinline{haskellc}`r`.
+A typeclass \mintinline{haskellc}`Region r` is also needed to carry around the details about a region that are required for the implementation. This typeclass has a single method \mintinline{haskellc}`reflect`, not available to the user, that returns the \mintinline{haskellc}`RegionInfo` structure associated to identifier \mintinline{haskellc}`r`.
 
 The \mintinline{haskellc}`withRegion` function is the new addition to the modified API presented in Table~\ref{table:destination-api-regions} (the \mintinline{haskellc}`Token` type and its associated functions \mintinline{haskellc}`dup2` and \mintinline{haskellc}`consume` are unchanged). \mintinline{haskellc}`withRegion` is mostly a refinement over the \mintinline{haskellc}`withToken` function from Table~\ref{table:destination-api}. It receives a continuation in which \mintinline{haskellc}`r` must be a free type variable. It then spawns both a new compact region and a fresh type \mintinline[escapeinside=°°]{haskellc}`°\muline{r}°` (not a variable), and uses the \mintinline{text}`reflection` library to provide an instance of \mintinline[escapeinside=°°]{haskellc}`Region °\muline{r}°` on-the-fly that links \mintinline[escapeinside=°°]{haskellc}`°\muline{r}°` and the \mintinline{haskellc}`RegionInfo` for the new region, and calls the continuation at type \mintinline[escapeinside=°°]{haskellc}`°\muline{r}°`. This is fairly standard practice since~\cite{launchbury_lazy_1994}.
 

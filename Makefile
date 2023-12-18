@@ -6,7 +6,14 @@ all: destination-passing-haskell.pdf
 #   mark left in the pdf.
 arxiv:
 	$(MAKE) clean
-	$(MAKE) destination-passing-haskell.pdf.tar.gz
+	sed -i 's/\\usepackage{minted}/\\usepackage[finalizecache]{minted}/' destination-passing-haskell.tex
+	$(MAKE) destination-passing-haskell.pdf
+	sed -i 's/\\usepackage\[finalizecache\]{minted}/\\usepackage[frozencache]{minted}/' destination-passing-haskell.tex
+	$(MAKE) destination-passing-haskell.tar.gz
+	sed -i 's/\\usepackage\[frozencache\]{minted}/\\usepackage{minted}/' destination-passing-haskell.tex
+
+destination-passing-haskell.tar.gz: destination-passing-haskell.tex destination-passing-haskell.bbl jflart.cls _minted-destination-passing-haskell schemas/*.tikz *.sty *.tikzstyles bench-charts.pdf
+	tar -cvzf $@ $^
 
 arxiv-nix:
 	nix-shell --pure --run "make arxiv"
@@ -17,18 +24,14 @@ clean:
 	rm -f destination-passing-haskell.tar.gz
 	rm -rf _minted-destination-passing-haskell
 
-# TODO: should we add 'schemas/*.tikz *.sty *.tikzstyles bench-charts.pdf' too?
-destination-passing-haskell.tar.gz: destination-passing-haskell.tex destination-passing-haskell.bbl jflart.cls
-	tar -cvzf $@ $^
-
-%.pdf %.bbl : %.tex bibliography.bib pygmentize_local hc.py jflart.cls schemas/*.tikz *.sty *.tikzstyles bench-charts.pdf
+%.pdf %.bbl : %.tex bibliography.bib alpha-fr.bst pygmentize_local hc.py jflart.cls schemas/*.tikz *.sty *.tikzstyles bench-charts.pdf
 	cd $(dir $<) && latexmk $(notdir $*)
 
 nix::
 	nix-shell --pure --run make
 
 continuous::
-	ls destination-passing-haskell.tex bibliography.bib pygmentize_local hc.py jflart.cls schemas/*.tikz *.sty *.tikzstyles bench-charts.pdf | entr make
+	ls destination-passing-haskell.tex bibliography.bib alpha-fr.bst pygmentize_local hc.py jflart.cls schemas/*.tikz *.sty *.tikzstyles bench-charts.pdf | entr make
 
 continuous-nix:: nix
 	nix-shell --pure --run "make continuous"
